@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors'); // 1. REQUIRE CORS AT THE TOP
 const approvalRoutes = require('./routes/route');
 const userRoutes = require('./routes/userRoutes');
+const formRoutes = require('./routes/formRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -23,6 +24,7 @@ app.use((req, res, next) => {
 // 3. API Routes
 app.use('/api/approvals', approvalRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/forms', formRoutes);
 
 // 4. Base Route
 app.get('/', (req, res) => {

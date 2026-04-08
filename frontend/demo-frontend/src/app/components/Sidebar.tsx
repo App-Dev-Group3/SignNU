@@ -1,29 +1,17 @@
 import { Link, useLocation, useNavigate } from 'react-router';
 import { LayoutDashboard, FileText, CheckSquare, FileCheck, School, LogOut } from 'lucide-react';
 import { useWorkflow } from '../context/WorkflowContext';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Button } from './ui/button';
 
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentUser, switchUser, logout } = useWorkflow();
+  const { currentUser, logout } = useWorkflow();
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
-
-  const users = [
-    { id: 'user-1', name: 'Juan Dela Cruz', role: 'Admin' },
-    { id: 'user-2', name: 'Maria Santos', role: 'Requester' },
-    { id: 'user-3', name: 'Robert Garcia', role: 'Signatory' },
-    { id: 'user-4', name: 'Anna Reyes', role: 'Signatory' },
-    { id: 'user-5', name: 'Pedro Rodriguez', role: 'Requester' },
-    { id: 'user-6', name: 'Lisa Chen', role: 'Signatory' },
-    { id: 'user-7', name: 'Thomas Wilson', role: 'Signatory' },
-    { id: 'user-8', name: 'Sarah Johnson', role: 'Signatory' },
-  ];
 
   const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -49,21 +37,6 @@ export function Sidebar() {
 
       {/* User Info */}
       <div className="p-4 border-b border-gray-200">
-        <div className="mb-3">
-          <label className="text-xs text-gray-500 mb-1 block">Current User</label>
-          <Select value={currentUser.id} onValueChange={switchUser}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {users.map((user) => (
-                <SelectItem key={user.id} value={user.id}>
-                  {user.name} ({user.role})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
             <span className="text-sm font-medium text-gray-700">

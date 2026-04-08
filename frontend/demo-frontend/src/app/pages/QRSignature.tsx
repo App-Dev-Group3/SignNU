@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { WorkflowProvider, useWorkflow } from '../context/WorkflowContext';
+import { useWorkflow } from '../context/WorkflowContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
@@ -281,9 +281,5 @@ function QRSignatureContent() {
 }
 
 export function QRSignature() {
-  return (
-    <WorkflowProvider>
-      <QRSignatureContent />
-    </WorkflowProvider>
-  );
+  return <QRSignatureContent />;
 }

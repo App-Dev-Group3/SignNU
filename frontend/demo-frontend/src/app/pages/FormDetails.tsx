@@ -9,7 +9,7 @@ import { Separator } from '../components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
-import QRCode from 'qrcode';
+// import QRCode from 'qrcode';
 import { 
   FileText, 
   Calendar, 
@@ -39,15 +39,15 @@ export function FormDetails() {
     addSignature, 
     addAttachment, 
     currentUser,
-    generateQRSession,
+    // generateQRSession,
     sendNudge,
     generateAISummary,
   } = useWorkflow();
   const [comments, setComments] = useState('');
   const [isSignatureDialogOpen, setIsSignatureDialogOpen] = useState(false);
-  const [isQRDialogOpen, setIsQRDialogOpen] = useState(false);
-  const [qrCodeDataURL, setQrCodeDataURL] = useState('');
-  const [qrSessionLink, setQrSessionLink] = useState('');
+  // const [isQRDialogOpen, setIsQRDialogOpen] = useState(false);
+  // const [qrCodeDataURL, setQrCodeDataURL] = useState('');
+  // const [qrSessionLink, setQrSessionLink] = useState('');
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [signature, setSignature] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -70,9 +70,15 @@ export function FormDetails() {
 
   const currentStep = form.approvalSteps[form.currentStep];
   const canApprove = currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
-  const hasApproved = form.approvalSteps.some(
+  const canAddSignature = form.approvalSteps.some(
     step => step.userId === currentUser.id && step.status !== 'pending'
   );
+  const isCurrentSigner = currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
+  const canOpenSignatureDialog = canAddSignature || isCurrentSigner;
+  const signatureButtonLabel = isCurrentSigner ? 'Sign & Approve' : 'Add Signature';
+  const signatureDialogDescription = isCurrentSigner
+    ? 'Sign and approve this document to complete your step.'
+    : 'Draw your signature in the box below.';
 
   const handleApprove = () => {
     if (currentStep) {
@@ -167,12 +173,19 @@ export function FormDetails() {
       role: currentUser.role,
       signature: signatureData,
     });
-    
-    toast.success('Signature added successfully');
+
+    if (isCurrentSigner && currentStep) {
+      approveStep(form.id, currentStep.id, 'Signed and approved');
+      toast.success('Signature added and step approved');
+    } else {
+      toast.success('Signature added successfully');
+    }
+
     setIsSignatureDialogOpen(false);
     clearSignature();
   };
 
+  /* QR code signing feature is temporarily disabled.
   const handleGenerateQR = async () => {
     if (!currentStep) {
       toast.error('No pending approver to generate QR for');
@@ -192,6 +205,7 @@ export function FormDetails() {
       toast.error('Failed to generate QR code');
     }
   };
+  */
 
   const handleSendNudge = () => {
     sendNudge(form.id);
@@ -453,19 +467,19 @@ This is an official document from SignNU - NU Laguna
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>Electronic Signatures</CardTitle>
-                  {hasApproved && (
+                  {canOpenSignatureDialog && (
                     <Dialog open={isSignatureDialogOpen} onOpenChange={setIsSignatureDialogOpen}>
                       <DialogTrigger asChild>
                         <Button variant="outline" size="sm">
                           <PenTool className="w-4 h-4 mr-2" />
-                          Add Signature
+                          {signatureButtonLabel}
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="sm:max-w-md">
                         <DialogHeader>
-                          <DialogTitle>Add Your Signature</DialogTitle>
+                          <DialogTitle>{signatureButtonLabel}</DialogTitle>
                           <DialogDescription>
-                            Draw your signature in the box below
+                            {signatureDialogDescription}
                           </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4">
@@ -625,10 +639,12 @@ This is an official document from SignNU - NU Laguna
                 <CardTitle>Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* QR code signing feature disabled
                 <Button onClick={handleGenerateQR} variant="outline" size="sm">
                   <QrCode className="w-4 h-4 mr-2" />
                   Generate QR Code
                 </Button>
+                */}
                 <Button onClick={handleSendNudge} variant="outline" size="sm">
                   <Bell className="w-4 h-4 mr-2" />
                   Send Nudge
@@ -646,7 +662,7 @@ This is an official document from SignNU - NU Laguna
           </div>
         </div>
 
-        {/* QR Code Dialog */}
+        {/* QR Code Dialog
         <Dialog open={isQRDialogOpen} onOpenChange={setIsQRDialogOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
@@ -689,6 +705,7 @@ This is an official document from SignNU - NU Laguna
             </div>
           </DialogContent>
         </Dialog>
+        */}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useWorkflow, FormType } from '../context/WorkflowContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -42,12 +42,15 @@ const approvalChains: Record<FormType, Array<{ role: string; userId: string; use
 export function NewForm() {
   const navigate = useNavigate();
   const { addForm, currentUser } = useWorkflow();
-  
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+
   const [formType, setFormType] = useState<FormType | ''>('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string }>>([]);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [approvalSteps, setApprovalSteps] = useState<Array<{ role: string; userId: string; userName: string }>>([]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -61,6 +64,27 @@ export function NewForm() {
     }
   };
 
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/users`);
+        if (!response.ok) {
+          throw new Error('Failed to load users');
+        }
+        const fetchedUsers = await response.json();
+        setAvailableUsers(fetchedUsers.map((user: any) => ({
+          id: user._id || user.id,
+          name: user.username || user.name || user.email,
+          role: user.role,
+        })));
+      } catch (error) {
+        console.error('Error loading approvers:', error);
+      }
+    };
+
+    fetchUsers();
+  }, [API_BASE_URL]);
+
   const removeAttachment = (index: number) => {
     setAttachments(attachments.filter((_, i) => i !== index));
   };
@@ -73,11 +97,10 @@ export function NewForm() {
       return;
     }
 
-    const approvalSteps = approvalChains[formType].map((step, index) => ({
-      id: `step-${Date.now()}-${index}`,
-      ...step,
-      status: 'pending' as const,
-    }));
+    if (approvalSteps.some((step) => !step.userId)) {
+      toast.error('Please select an approver for every approval step');
+      return;
+    }
 
     addForm({
       type: formType,
@@ -91,13 +114,55 @@ export function NewForm() {
         id: `att-${Date.now()}-${index}`,
         url: '#',
       })),
-      approvalSteps,
+      approvalSteps: approvalSteps.map((step, index) => ({
+        id: `step-${Date.now()}-${index}`,
+        ...step,
+        status: 'pending' as const,
+      })),
       signatures: [],
     });
 
     toast.success('Form submitted successfully!');
     navigate('/submissions');
   };
+
+  const getApproverOptions = (role: string) => {
+    return availableUsers.filter((user) => user.role === role);
+  };
+
+  const buildApprovalSteps = (type: FormType) => {
+    return approvalChains[type].map((step) => {
+      const matchedUser = availableUsers.find((user) => user.role === step.role);
+      return {
+        role: step.role,
+        userId: matchedUser?.id || '',
+        userName: matchedUser?.name || '',
+      };
+    });
+  };
+
+  const handleApproverChange = (index: number, userId: string) => {
+    const user = availableUsers.find((item) => item.id === userId);
+    if (!user) return;
+
+    setApprovalSteps((prev) => prev.map((step, idx) => {
+      if (idx !== index) return step;
+      return {
+        ...step,
+        userId: user.id,
+        userName: user.name,
+      };
+    }));
+  };
+
+  useEffect(() => {
+    if (!formType) {
+      setApprovalSteps([]);
+      return;
+    }
+
+    setApprovalSteps(buildApprovalSteps(formType));
+  }, [formType, availableUsers]);
 
   return (
     <div className="p-8">
@@ -256,16 +321,37 @@ export function NewForm() {
                   <Label>Approval Chain</Label>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-sm text-gray-600 mb-3">
-                      This form will be routed through the following approvers:
+                      Select an approver account for each approval role below.
                     </p>
-                    <div className="space-y-2">
-                      {approvalChains[formType].map((step, index) => (
-                        <div key={index} className="flex items-center gap-2 text-sm">
-                          <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs">
-                            {index + 1}
+                    <div className="space-y-4">
+                      {approvalSteps.map((step, index) => (
+                        <div key={index} className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_2fr] items-center text-sm">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs">
+                              {index + 1}
+                            </div>
+                            <div>
+                              <div className="font-medium">{step.role}</div>
+                              <div className="text-gray-500 text-xs">Choose a user for this role</div>
+                            </div>
                           </div>
-                          <span className="font-medium">{step.role}</span>
-                          <span className="text-gray-500">({step.userName})</span>
+                          <Select value={step.userId} onValueChange={(value) => handleApproverChange(index, value)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select approver" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getApproverOptions(step.role).map((user) => (
+                                <SelectItem key={user.id} value={user.id}>
+                                  {user.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {getApproverOptions(step.role).length === 0 && (
+                            <p className="text-xs text-orange-600 col-span-full">
+                              No users with the role "{step.role}" were found. Create a user with that role or choose a different role in the backend.
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>

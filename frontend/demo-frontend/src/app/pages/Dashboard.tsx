@@ -3,13 +3,15 @@ import { useWorkflow } from '../context/WorkflowContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { FileText, CheckCircle, Clock, AlertCircle, TrendingUp, Plus } from 'lucide-react';
+import { FileText, CheckCircle, Clock, AlertCircle, TrendingUp, Plus, Bell } from 'lucide-react';
 import { format } from 'date-fns';
 
 export function Dashboard() {
-  const { forms, currentUser } = useWorkflow();
+  const { forms, currentUser, notifications, markNotificationRead } = useWorkflow();
 
   const mySubmissions = forms.filter(f => f.submittedById === currentUser.id);
+  const myNotifications = notifications.filter(n => n.userId === currentUser.id);
+  const unreadCount = myNotifications.filter(n => !n.read).length;
   const pendingApprovals = forms.filter(f => 
     f.status === 'pending' && 
     f.approvalSteps[f.currentStep]?.userId === currentUser.id
@@ -70,7 +72,7 @@ export function Dashboard() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           {stats.map((stat) => {
             const Icon = stat.icon;
             return (
@@ -89,6 +91,54 @@ export function Dashboard() {
               </Card>
             );
           })}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-blue-600" />
+                  <div>
+                    <CardTitle>Notifications</CardTitle>
+                    <CardDescription>Web approval alerts</CardDescription>
+                  </div>
+                </div>
+                <Badge variant={unreadCount > 0 ? 'secondary' : 'default'}>
+                  {unreadCount} unread
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {myNotifications.length === 0 ? (
+                <p className="text-sm text-gray-500">No notifications yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {myNotifications.slice(0, 5).map((notification) => (
+                    <div
+                      key={notification.id}
+                      className={`p-3 rounded-lg border ${notification.read ? 'border-gray-200 bg-gray-50' : 'border-blue-200 bg-blue-50'}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm text-gray-800">{notification.message}</p>
+                        {!notification.read && (
+                          <Badge variant="default">New</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">{new Date(notification.createdAt).toLocaleString()}</p>
+                      {!notification.read && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => markNotificationRead(notification.id)}
+                          className="mt-2"
+                        >
+                          Mark read
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Recent Activity */}

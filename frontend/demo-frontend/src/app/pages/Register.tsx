@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import { UserPlus, Mail, Lock, User, Briefcase, FileCheck, Sparkles, CheckCircle } from 'lucide-react';
 
@@ -212,8 +212,16 @@ export function Register() {
                           <SelectContent>
                             <SelectItem value="Department Head">Department Head</SelectItem>
                             <SelectItem value="Dean">Dean</SelectItem>
-                            <SelectItem value="Signatory">Signatory</SelectItem>
-                            <SelectItem value="Requester">Requester</SelectItem>
+                            <SelectItem value="Faculty">Faculty</SelectItem>
+                            <SelectItem value="Staff">Staff</SelectItem>
+                            <SelectItem value="Student">Student</SelectItem>
+                            <SelectItem value="Finance Officer">Finance Officer</SelectItem>
+                            <SelectItem value="Procurement Officer">Procurement Officer</SelectItem>
+                            <SelectGroup>
+                              <SelectLabel>VP - Departments</SelectLabel>
+                              <SelectItem value="VP for Academics">VP for Academics</SelectItem>
+                              <SelectItem value="VP for Finance">VP for Finance</SelectItem>
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                       </div>

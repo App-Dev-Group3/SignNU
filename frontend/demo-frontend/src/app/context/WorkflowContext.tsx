@@ -157,6 +157,57 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [qrSessions, setQrSessions] = useState<QRSession[]>([]);
 
+  const fetchFormsFromBackend = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/forms`);
+      if (!response.ok) throw new Error('Failed to load forms from backend');
+      const data = await response.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setForms(data);
+      }
+    } catch (error) {
+      console.error('Could not load forms from backend:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchFormsFromBackend();
+  }, [API_BASE_URL]);
+
+  const createFormOnBackend = async (form: FormSubmission) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/forms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(form),
+      });
+      if (!response.ok) throw new Error('Failed to create form on backend');
+      return await response.json();
+    } catch (error) {
+      console.error('Create form backend failed', error);
+      return null;
+    }
+  };
+
+  const updateFormOnBackend = async (id: string, updates: Partial<FormSubmission>) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/forms/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+      if (!response.ok) throw new Error('Failed to update form on backend');
+      return await response.json();
+    } catch (error) {
+      console.error('Update form backend failed', error);
+      return null;
+    }
+  };
+
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/users/login`, {
@@ -259,11 +310,31 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       currentStep: 0,
       signatureMarkers: [],
     };
+
     setForms([newForm, ...forms]);
+
+    createFormOnBackend(newForm).then((savedForm) => {
+      if (savedForm) {
+        setForms((prevForms) => prevForms.map((f) => f.id === newForm.id ? savedForm : f));
+      }
+    });
+
+    if (newForm.approvalSteps.length > 0) {
+      addNotification(
+        newForm.id,
+        newForm.approvalSteps[0].userId,
+        `New form "${newForm.title}" requires your approval`
+      );
+    }
   };
 
   const updateForm = (id: string, updates: Partial<FormSubmission>) => {
     setForms(forms.map(form => form.id === id ? { ...form, ...updates } : form));
+    updateFormOnBackend(id, updates).then((savedForm) => {
+      if (savedForm) {
+        setForms((prevForms) => prevForms.map((form) => form.id === id ? savedForm : form));
+      }
+    });
   };
 
   const getFormById = (id: string) => {
@@ -271,7 +342,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   };
 
   const approveStep = (formId: string, stepId: string, comments?: string) => {
-    setForms(forms.map(form => {
+    const updatedForms: FormSubmission[] = forms.map(form => {
       if (form.id !== formId) return form;
       
       const updatedSteps = form.approvalSteps.map(step => {
@@ -290,17 +361,36 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       const allPreviousApproved = updatedSteps.slice(0, currentStepIndex + 1).every(s => s.status === 'approved');
       const isLastStep = currentStepIndex === updatedSteps.length - 1;
 
+      const nextStep = !isLastStep ? updatedSteps[currentStepIndex + 1] : undefined;
+      if (allPreviousApproved && nextStep) {
+        addNotification(
+          form.id,
+          nextStep.userId,
+          `Form "${form.title}" is now awaiting your approval`
+        );
+      }
+
       return {
         ...form,
         approvalSteps: updatedSteps,
         currentStep: allPreviousApproved && !isLastStep ? currentStepIndex + 1 : form.currentStep,
-        status: allPreviousApproved && isLastStep ? 'approved' as const : form.status,
+        status: allPreviousApproved && isLastStep ? 'approved' as FormStatus : form.status,
       };
-    }));
+    });
+
+    setForms(updatedForms);
+    const updatedForm = updatedForms.find((form) => form.id === formId);
+    if (updatedForm) {
+      updateFormOnBackend(formId, {
+        approvalSteps: updatedForm.approvalSteps,
+        currentStep: updatedForm.currentStep,
+        status: updatedForm.status,
+      });
+    }
   };
 
   const rejectStep = (formId: string, stepId: string, comments: string) => {
-    setForms(forms.map(form => {
+    const updatedForms: FormSubmission[] = forms.map(form => {
       if (form.id !== formId) return form;
       
       const updatedSteps = form.approvalSteps.map(step => {
@@ -315,16 +405,31 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         return step;
       });
 
+      addNotification(
+        form.id,
+        form.submittedById,
+        `Your form "${form.title}" was rejected by ${updatedSteps.find(s => s.id === stepId)?.userName}.`
+      );
+
       return {
         ...form,
         approvalSteps: updatedSteps,
-        status: 'rejected',
+        status: 'rejected' as FormStatus,
       };
-    }));
+    });
+
+    setForms(updatedForms);
+    const updatedForm = updatedForms.find((form) => form.id === formId);
+    if (updatedForm) {
+      updateFormOnBackend(formId, {
+        approvalSteps: updatedForm.approvalSteps,
+        status: updatedForm.status,
+      });
+    }
   };
 
   const addSignature = (formId: string, signature: Omit<Signature, 'id' | 'signedAt'>) => {
-    setForms(forms.map(form => {
+    const updatedForms = forms.map(form => {
       if (form.id !== formId) return form;
       
       const newSignature: Signature = {
@@ -337,11 +442,18 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         ...form,
         signatures: [...form.signatures, newSignature],
       };
-    }));
+    });
+    setForms(updatedForms);
+    const updatedForm = updatedForms.find((form) => form.id === formId);
+    if (updatedForm) {
+      updateFormOnBackend(formId, {
+        signatures: updatedForm.signatures,
+      });
+    }
   };
 
   const addAttachment = (formId: string, attachment: Omit<Attachment, 'id'>) => {
-    setForms(forms.map(form => {
+    const updatedForms = forms.map(form => {
       if (form.id !== formId) return form;
       
       const newAttachment: Attachment = {
@@ -353,7 +465,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         ...form,
         attachments: [...form.attachments, newAttachment],
       };
-    }));
+    });
+    setForms(updatedForms);
+    const updatedForm = updatedForms.find((form) => form.id === formId);
+    if (updatedForm) {
+      updateFormOnBackend(formId, {
+        attachments: updatedForm.attachments,
+      });
+    }
   };
 
   const generateQRSession = (formId: string, stepId: string): QRSession => {
@@ -406,7 +525,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   };
 
   const addSignatureMarker = (formId: string, marker: Omit<SignatureMarker, 'id'>) => {
-    setForms(forms.map(form => {
+    const updatedForms = forms.map(form => {
       if (form.id !== formId) return form;
       
       const newMarker: SignatureMarker = {
@@ -418,7 +537,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         ...form,
         signatureMarkers: [...(form.signatureMarkers || []), newMarker],
       };
-    }));
+    });
+    setForms(updatedForms);
+    const updatedForm = updatedForms.find((form) => form.id === formId);
+    if (updatedForm) {
+      updateFormOnBackend(formId, {
+        signatureMarkers: updatedForm.signatureMarkers,
+      });
+    }
   };
 
   const sendNudge = (formId: string) => {
