@@ -149,12 +149,22 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     return getMockForms();
   });
 
-  // Save to localStorage whenever forms change
+  const [notifications, setNotifications] = useState<Notification[]>(() => {
+    const saved = localStorage.getItem('workflow-notifications');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+    return [];
+  });
+
+  // Save forms and notifications to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem('workflow-forms', JSON.stringify(forms));
   }, [forms]);
 
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  useEffect(() => {
+    localStorage.setItem('workflow-notifications', JSON.stringify(notifications));
+  }, [notifications]);
   const [qrSessions, setQrSessions] = useState<QRSession[]>([]);
 
   const fetchFormsFromBackend = async () => {
@@ -173,6 +183,32 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetchFormsFromBackend();
   }, [API_BASE_URL]);
+
+  useEffect(() => {
+    const pendingApprovalForms = forms.filter((form) => {
+      const currentStep = form.approvalSteps[form.currentStep];
+      return (
+        form.status === 'pending' &&
+        currentStep?.userId === currentUser.id &&
+        !notifications.some((notification) => notification.formId === form.id && notification.message.startsWith('New form'))
+      );
+    });
+
+    if (pendingApprovalForms.length === 0) {
+      return;
+    }
+
+    const newNotifications = pendingApprovalForms.map((form) => ({
+      formId: form.id,
+      userId: currentUser.id,
+      message: `New form "${form.title}" requires your approval`,
+      id: `notif-${Date.now()}-${form.id}`,
+      createdAt: new Date().toISOString(),
+      read: false,
+    }));
+
+    setNotifications((prev) => [...newNotifications, ...prev]);
+  }, [forms, currentUser.id, notifications]);
 
   const createFormOnBackend = async (form: FormSubmission) => {
     try {
