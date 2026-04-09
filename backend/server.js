@@ -5,12 +5,16 @@ const cors = require('cors'); // 1. REQUIRE CORS AT THE TOP
 const approvalRoutes = require('./routes/route');
 const userRoutes = require('./routes/userRoutes');
 const formRoutes = require('./routes/formRoutes');
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
 // 2. ENABLE CORS (Place this before your routes!)
-app.use(cors()); 
+app.use(cors({
+  origin: FRONTEND_URL,
+  credentials: true,
+})); 
 
 // 1. JSON Parser Middleware
 app.use(express.json());

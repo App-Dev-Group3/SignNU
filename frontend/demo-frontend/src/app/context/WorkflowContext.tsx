@@ -126,31 +126,13 @@ interface WorkflowContextType {
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);
 
 export function WorkflowProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    const savedAuth = localStorage.getItem('isAuthenticated') === 'true';
-    const savedUser = localStorage.getItem('currentUser');
-    return savedAuth && !!savedUser;
-  });
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
-    const saved = localStorage.getItem('currentUser');
-    if (saved) {
-      return JSON.parse(saved) as CurrentUser;
-    }
-    return null;
-  });
-  const [authToken, setAuthToken] = useState<string | null>(() => {
-    return localStorage.getItem('authToken');
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
 
   const viteEnv = import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } };
   const API_BASE_URL = viteEnv.env?.VITE_API_BASE_URL || 'http://localhost:4000';
 
   const [forms, setForms] = useState<FormSubmission[]>(() => {
-    // Load from localStorage if available
-    const saved = localStorage.getItem('workflow-forms');
-    if (saved) {
-      return JSON.parse(saved);
-    }
     return getMockForms();
   });
 
@@ -158,13 +140,53 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const [qrSessions, setQrSessions] = useState<QRSession[]>([]);
 
+  useEffect(() => {
+    const verifySession = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/users/me`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+          return;
+        }
+
+        const data = await response.json();
+        const role = ['Requester', 'Signatory', 'Reviewer', 'Admin'].includes(data.user.role)
+          ? (data.user.role as UserRole)
+          : 'Requester';
+
+        const safeUser: CurrentUser = {
+          id: data.user._id ?? data.user.id,
+          name: data.user.username ?? data.user.name ?? data.user.email,
+          role,
+          department: data.user.department,
+          email: data.user.email,
+        };
+
+        setCurrentUser(safeUser);
+        setIsAuthenticated(true);
+      } catch (error) {
+        console.error('Verify session failed:', error);
+        setCurrentUser(null);
+        setIsAuthenticated(false);
+      }
+    };
+
+    verifySession();
+  }, [API_BASE_URL]);
+
   const fetchNotificationsFromBackend = async () => {
     if (!currentUser?.id) {
       setNotificationsLoaded(true);
       return;
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/notifications`);
+      const response = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/notifications`, {
+        credentials: 'include',
+      });
       if (!response.ok) throw new Error('Failed to load notifications from backend');
       const data = await response.json();
       if (Array.isArray(data)) {
@@ -182,13 +204,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     fetchNotificationsFromBackend();
   }, [API_BASE_URL, currentUser?.id]);
 
-  useEffect(() => {
-    localStorage.setItem('workflow-forms', JSON.stringify(forms));
-  }, [forms]);
-
   const fetchFormsFromBackend = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/forms`);
+      const response = await fetch(`${API_BASE_URL}/api/forms`, {
+        credentials: 'include',
+      });
       if (!response.ok) throw new Error('Failed to load forms from backend');
       const data = await response.json();
       if (Array.isArray(data) && data.length > 0) {
@@ -238,6 +258,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/forms`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -255,6 +276,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/forms/${id}`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -272,6 +294,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/users/login`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -295,10 +318,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
       setCurrentUser(safeUser);
       setIsAuthenticated(true);
-      setAuthToken(data.token);
-      localStorage.setItem('isAuthenticated', 'true');
-      localStorage.setItem('currentUser', JSON.stringify(safeUser));
-      localStorage.setItem('authToken', data.token);
 
       return true;
     } catch (error) {
@@ -311,6 +330,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/users`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -338,10 +358,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
       setCurrentUser(safeUser);
       setIsAuthenticated(true);
-      setAuthToken(result.token);
-      localStorage.setItem('isAuthenticated', 'true');
-      localStorage.setItem('currentUser', JSON.stringify(safeUser));
-      localStorage.setItem('authToken', result.token);
 
       return true;
     } catch (error) {
@@ -350,11 +366,18 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/api/users/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+
     setIsAuthenticated(false);
     setCurrentUser(null);
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('currentUser');
   };
 
   const addForm = (form: Omit<FormSubmission, 'id' | 'submittedAt' | 'status' | 'currentStep' | 'signatureMarkers'>) => {

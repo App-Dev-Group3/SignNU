@@ -7,6 +7,7 @@ const {
     createUser,
     loginUser,
     getCurrentUser,
+    logoutUser,
     getUserNotifications,
     addUserNotification,
     updateUserNotification,
@@ -18,6 +19,7 @@ const authMiddleware = require('../middleware/authMiddleware.js');
 router.get('/', getAllUsers);
 router.post('/login', loginUser);
 router.get('/me', authMiddleware, getCurrentUser);
+router.post('/logout', authMiddleware, logoutUser);
 router.get('/:id/notifications', getUserNotifications);
 router.post('/:id/notifications', addUserNotification);
 router.patch('/:id/notifications/:notificationId', updateUserNotification);

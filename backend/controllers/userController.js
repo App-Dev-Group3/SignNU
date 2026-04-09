@@ -61,6 +61,12 @@ const createUser = async (req, res) => {
         delete safeUser.password;
 
         const token = generateToken(user);
+        res.cookie('auth_token', token, {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 60 * 60 * 1000, // 1 hour
+        });
 
         res.status(201).json({ message: 'User created', token, user: safeUser });
     } catch (error) {
@@ -86,6 +92,12 @@ const loginUser = async (req, res) => {
         delete safeUser.password;
 
         const token = generateToken(user);
+        res.cookie('auth_token', token, {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 60 * 60 * 1000, // 1 hour
+        });
 
         res.status(200).json({ message: 'Login successful', token, user: safeUser });
     } catch (error) {
@@ -106,6 +118,15 @@ const getCurrentUser = async (req, res) => {
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
+};
+
+const logoutUser = async (req, res) => {
+    res.clearCookie('auth_token', {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+    });
+    res.status(200).json({ message: 'Logout successful' });
 };
 
 const getUserNotifications = async (req, res) => {
@@ -213,6 +234,7 @@ module.exports = {
     createUser,
     loginUser,
     getCurrentUser,
+    logoutUser,
     getUserNotifications,
     addUserNotification,
     updateUserNotification,

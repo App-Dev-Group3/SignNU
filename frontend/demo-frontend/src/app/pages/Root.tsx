@@ -1,13 +1,18 @@
-import { Outlet, Navigate } from 'react-router';
+import { Outlet, Navigate, useLocation } from 'react-router';
 import { useWorkflow } from '../context/WorkflowContext';
 import { Sidebar } from '../components/Sidebar';
 import AIAssistant from '../components/ui/AIAssistant';
 
 function ProtectedLayout() {
-  const { isAuthenticated } = useWorkflow();
+  const { isAuthenticated, currentUser } = useWorkflow();
+  const location = useLocation();
   
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (location.pathname === '/' && currentUser?.role === 'Admin') {
+    return <Navigate to="/admin" replace />;
   }
 
   return (
