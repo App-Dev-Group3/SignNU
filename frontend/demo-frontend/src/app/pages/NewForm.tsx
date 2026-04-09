@@ -44,6 +44,10 @@ export function NewForm() {
   const { addForm, currentUser } = useWorkflow();
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
+  if (!currentUser) {
+    return null;
+  }
+
   const [formType, setFormType] = useState<FormType | ''>('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');

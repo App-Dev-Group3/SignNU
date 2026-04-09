@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
-import { LogIn, Mail, Lock, FileCheck, Sparkles, Shield, Zap, CheckCircle2 } from 'lucide-react';
+import { LogIn, Mail, Lock, FileCheck, Sparkles, Shield, Zap } from 'lucide-react';
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -31,23 +31,6 @@ export function Login() {
       navigate('/');
     } else {
       toast.error('Invalid email or password');
-    }
-
-    setIsLoading(false);
-  };
-
-  // Quick login for demo purposes
-  const quickLogin = async (userEmail: string, userPassword: string) => {
-    setEmail(userEmail);
-    setPassword(userPassword);
-    setIsLoading(true);
-
-    const success = await login(userEmail, userPassword);
-    if (success) {
-      toast.success('Login successful!');
-      navigate('/');
-    } else {
-      toast.error('Quick login failed');
     }
 
     setIsLoading(false);
@@ -215,38 +198,6 @@ export function Login() {
                     )}
                   </Button>
                 </form>
-
-                <div className="mt-6">
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-gray-300" />
-                    </div>
-                    <div className="relative flex justify-center text-sm">
-                      <span className="px-4 bg-white text-gray-500 font-medium">Quick Demo Access</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => quickLogin('juan@nu.edu.ph', 'password123')}
-                      className="h-10 border-2 hover:border-blue-500 hover:bg-blue-50 transition-all"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-2 text-blue-600" />
-                      Admin
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => quickLogin('maria@nu.edu.ph', 'password123')}
-                      className="h-10 border-2 hover:border-purple-500 hover:bg-purple-50 transition-all"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-2 text-purple-600" />
-                      Requester
-                    </Button>
-                  </div>
-                </div>
 
                 <div className="mt-6 text-center">
                   <p className="text-sm text-gray-600">

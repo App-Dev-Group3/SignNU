@@ -2,9 +2,12 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const NotificationSchema = new Schema({
+  id: { type: String, required: true, unique: true },
+  formId: { type: String, required: true },
+  userId: { type: String, required: true },
   message: { type: String, required: true },
-  is_read: { type: Boolean, default: false },
-  created_at: { type: Date, default: Date.now }
+  read: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
 }, { _id: false });
 
 const userSchema = new Schema({

@@ -9,6 +9,10 @@ import { format } from 'date-fns';
 export function Dashboard() {
   const { forms, currentUser, notifications, markNotificationRead } = useWorkflow();
 
+  if (!currentUser) {
+    return null;
+  }
+
   const mySubmissions = forms.filter(f => f.submittedById === currentUser.id);
   const myNotifications = notifications.filter(n => n.userId === currentUser.id);
   const unreadCount = myNotifications.filter(n => !n.read).length;

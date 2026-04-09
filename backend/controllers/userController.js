@@ -108,6 +108,73 @@ const getCurrentUser = async (req, res) => {
     }
 };
 
+const getUserNotifications = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const notifications = (user.notifications || []).map((notification) => ({
+            id: notification.id || `notif-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            formId: notification.formId || '',
+            userId: notification.userId || user._id.toString(),
+            message: notification.message,
+            createdAt: notification.createdAt ? notification.createdAt.toISOString() : (notification.created_at ? notification.created_at.toISOString() : new Date().toISOString()),
+            read: typeof notification.read === 'boolean' ? notification.read : notification.is_read || false,
+        }));
+        res.status(200).json(notifications);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+const addUserNotification = async (req, res) => {
+    const { id } = req.params;
+    const { formId, userId, message } = req.body;
+    try {
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const notification = {
+            id: `notif-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            formId,
+            userId,
+            message,
+            read: false,
+            createdAt: new Date(),
+        };
+        user.notifications = [notification, ...(user.notifications || [])];
+        await user.save();
+        res.status(201).json(notification);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+const updateUserNotification = async (req, res) => {
+    const { id, notificationId } = req.params;
+    const { read } = req.body;
+    try {
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const notification = (user.notifications || []).find((notification) => notification.id === notificationId);
+        if (!notification) {
+            return res.status(404).json({ error: 'Notification not found' });
+        }
+        if (typeof read === 'boolean') {
+            notification.read = read;
+        }
+        await user.save();
+        res.status(200).json(notification);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
 // Update a user
 const updateUser = async (req, res) => {
     const { id } = req.params;
@@ -146,6 +213,9 @@ module.exports = {
     createUser,
     loginUser,
     getCurrentUser,
+    getUserNotifications,
+    addUserNotification,
+    updateUserNotification,
     updateUser,
     deleteUser,
 };

@@ -58,6 +58,14 @@ export interface Notification {
   read: boolean;
 }
 
+export interface CurrentUser {
+  id: string;
+  name: string;
+  role: UserRole;
+  department?: string;
+  email?: string;
+}
+
 export interface ApprovalStep {
   id: string;
   role: string;
@@ -90,7 +98,7 @@ export interface FormSubmission {
 
 interface WorkflowContextType {
   isAuthenticated: boolean;
-  currentUser: { id: string; name: string; role: UserRole; department?: string; email?: string };
+  currentUser: CurrentUser | null;
   forms: FormSubmission[];
   notifications: Notification[];
   qrSessions: QRSession[];
@@ -110,9 +118,8 @@ interface WorkflowContextType {
   addSignatureMarker: (formId: string, marker: Omit<SignatureMarker, 'id'>) => void;
   sendNudge: (formId: string) => void;
   generateAISummary: (formId: string) => Promise<void>;
-  addNotification: (formId: string, userId: string, message: string) => void;
-  markNotificationRead: (notificationId: string) => void;
-  switchUser: (userId: string) => void;
+  addNotification: (formId: string, userId: string, message: string) => Promise<void>;
+  markNotificationRead: (notificationId: string) => Promise<void>;
   downloadFormPDF: (formId: string) => void;
 }
 
@@ -120,18 +127,16 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined
 
 export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('isAuthenticated') === 'true';
+    const savedAuth = localStorage.getItem('isAuthenticated') === 'true';
+    const savedUser = localStorage.getItem('currentUser');
+    return savedAuth && !!savedUser;
   });
-  const [currentUser, setCurrentUser] = useState(() => {
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
     const saved = localStorage.getItem('currentUser');
     if (saved) {
-      return JSON.parse(saved);
+      return JSON.parse(saved) as CurrentUser;
     }
-    return {
-      id: 'user-1',
-      name: 'Juan Dela Cruz',
-      role: 'Admin' as UserRole,
-    };
+    return null;
   });
   const [authToken, setAuthToken] = useState<string | null>(() => {
     return localStorage.getItem('authToken');
@@ -149,23 +154,37 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     return getMockForms();
   });
 
-  const [notifications, setNotifications] = useState<Notification[]>(() => {
-    const saved = localStorage.getItem('workflow-notifications');
-    if (saved) {
-      return JSON.parse(saved);
-    }
-    return [];
-  });
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
+  const [qrSessions, setQrSessions] = useState<QRSession[]>([]);
 
-  // Save forms and notifications to localStorage whenever they change
+  const fetchNotificationsFromBackend = async () => {
+    if (!currentUser?.id) {
+      setNotificationsLoaded(true);
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/notifications`);
+      if (!response.ok) throw new Error('Failed to load notifications from backend');
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        setNotifications(data);
+      }
+    } catch (error) {
+      console.error('Could not load notifications from backend:', error);
+    } finally {
+      setNotificationsLoaded(true);
+    }
+  };
+
+  useEffect(() => {
+    setNotificationsLoaded(false);
+    fetchNotificationsFromBackend();
+  }, [API_BASE_URL, currentUser?.id]);
+
   useEffect(() => {
     localStorage.setItem('workflow-forms', JSON.stringify(forms));
   }, [forms]);
-
-  useEffect(() => {
-    localStorage.setItem('workflow-notifications', JSON.stringify(notifications));
-  }, [notifications]);
-  const [qrSessions, setQrSessions] = useState<QRSession[]>([]);
 
   const fetchFormsFromBackend = async () => {
     try {
@@ -185,30 +204,35 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   }, [API_BASE_URL]);
 
   useEffect(() => {
-    const pendingApprovalForms = forms.filter((form) => {
-      const currentStep = form.approvalSteps[form.currentStep];
-      return (
-        form.status === 'pending' &&
-        currentStep?.userId === currentUser.id &&
-        !notifications.some((notification) => notification.formId === form.id && notification.message.startsWith('New form'))
-      );
-    });
-
-    if (pendingApprovalForms.length === 0) {
+    if (!notificationsLoaded || !currentUser?.id) {
       return;
     }
 
-    const newNotifications = pendingApprovalForms.map((form) => ({
-      formId: form.id,
-      userId: currentUser.id,
-      message: `New form "${form.title}" requires your approval`,
-      id: `notif-${Date.now()}-${form.id}`,
-      createdAt: new Date().toISOString(),
-      read: false,
-    }));
+    const createMissingApprovalNotifications = async () => {
+      const pendingApprovalForms = forms.filter((form) => {
+        const currentStep = form.approvalSteps[form.currentStep];
+        return (
+          form.status === 'pending' &&
+          currentStep?.userId === currentUser.id &&
+          !notifications.some((notification) => notification.formId === form.id && notification.message.startsWith('New form'))
+        );
+      });
 
-    setNotifications((prev) => [...newNotifications, ...prev]);
-  }, [forms, currentUser.id, notifications]);
+      if (pendingApprovalForms.length === 0) {
+        return;
+      }
+
+      for (const form of pendingApprovalForms) {
+        await addNotification(
+          form.id,
+          currentUser.id,
+          `New form "${form.title}" requires your approval`
+        );
+      }
+    };
+
+    createMissingApprovalNotifications();
+  }, [forms, currentUser?.id, notifications, notificationsLoaded]);
 
   const createFormOnBackend = async (form: FormSubmission) => {
     try {
@@ -328,11 +352,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setIsAuthenticated(false);
-    setCurrentUser({
-      id: 'user-1',
-      name: 'Juan Dela Cruz',
-      role: 'Admin' as UserRole,
-    });
+    setCurrentUser(null);
     localStorage.removeItem('isAuthenticated');
     localStorage.removeItem('currentUser');
   };
@@ -618,40 +638,48 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     ));
   };
 
-  const addNotification = (formId: string, userId: string, message: string) => {
-    const newNotification: Notification = {
-      formId,
-      userId,
-      message,
-      id: `notif-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      read: false,
-    };
-    
-    setNotifications([newNotification, ...notifications]);
+  const addNotificationToBackend = async (formId: string, userId: string, message: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/${userId}/notifications`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ formId, userId, message }),
+      });
+      if (!response.ok) throw new Error('Failed to create notification');
+      return await response.json();
+    } catch (error) {
+      console.error('Could not create notification on backend:', error);
+      return null;
+    }
   };
 
-  const markNotificationRead = (notificationId: string) => {
-    setNotifications(notifications.map(n =>
-      n.id === notificationId ? { ...n, read: true } : n
-    ));
+  const addNotification = async (formId: string, userId: string, message: string) => {
+    const newNotification = await addNotificationToBackend(formId, userId, message);
+    if (!newNotification) return;
+    setNotifications((prev) => [newNotification, ...prev]);
   };
 
-  const switchUser = (userId: string) => {
-    const users = [
-      { id: 'user-1', name: 'Juan Dela Cruz', role: 'Admin' as UserRole },
-      { id: 'user-2', name: 'Maria Santos', role: 'Requester' as UserRole },
-      { id: 'user-3', name: 'Robert Garcia', role: 'Signatory' as UserRole },
-      { id: 'user-4', name: 'Anna Reyes', role: 'Signatory' as UserRole },
-      { id: 'user-5', name: 'Pedro Rodriguez', role: 'Requester' as UserRole },
-      { id: 'user-6', name: 'Lisa Chen', role: 'Signatory' as UserRole },
-      { id: 'user-7', name: 'Thomas Wilson', role: 'Signatory' as UserRole },
-      { id: 'user-8', name: 'Sarah Johnson', role: 'Signatory' as UserRole },
-    ];
-    
-    const user = users.find(u => u.id === userId);
-    if (user) {
-      setCurrentUser(user);
+  const markNotificationRead = async (notificationId: string) => {
+    if (!currentUser?.id) {
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/notifications/${notificationId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ read: true }),
+      });
+      if (!response.ok) throw new Error('Failed to update notification');
+      const updatedNotification = await response.json();
+      setNotifications((prev) => prev.map((n) =>
+        n.id === notificationId ? { ...n, read: updatedNotification.read } : n
+      ));
+    } catch (error) {
+      console.error('Could not update notification read status:', error);
     }
   };
 
@@ -697,7 +725,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         generateAISummary,
         addNotification,
         markNotificationRead,
-        switchUser,
         downloadFormPDF,
       }}
     >

@@ -8,6 +8,10 @@ import { format } from 'date-fns';
 export function ApprovalQueue() {
   const { forms, currentUser } = useWorkflow();
 
+  if (!currentUser) {
+    return null;
+  }
+
   const pendingApprovals = forms.filter(f => 
     f.status === 'pending' && 
     f.approvalSteps[f.currentStep]?.userId === currentUser.id

@@ -8,6 +8,10 @@ export function Sidebar() {
   const navigate = useNavigate();
   const { currentUser, logout } = useWorkflow();
 
+  if (!currentUser) {
+    return null;
+  }
+
   const handleLogout = () => {
     logout();
     navigate('/login');

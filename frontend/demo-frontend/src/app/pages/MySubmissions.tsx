@@ -11,6 +11,10 @@ import { useState } from 'react';
 export function MySubmissions() {
   const { forms, currentUser } = useWorkflow();
   const [search, setSearch] = useState('');
+
+  if (!currentUser) {
+    return null;
+  }
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
   const myForms = forms

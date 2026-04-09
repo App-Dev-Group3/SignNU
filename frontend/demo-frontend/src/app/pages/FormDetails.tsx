@@ -43,6 +43,10 @@ export function FormDetails() {
     sendNudge,
     generateAISummary,
   } = useWorkflow();
+
+  if (!currentUser) {
+    return null;
+  }
   const [comments, setComments] = useState('');
   const [isSignatureDialogOpen, setIsSignatureDialogOpen] = useState(false);
   // const [isQRDialogOpen, setIsQRDialogOpen] = useState(false);
