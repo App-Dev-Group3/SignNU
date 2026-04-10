@@ -100,6 +100,7 @@ export interface FormSubmission {
   signatureMarkers: SignatureMarker[];
   currentStep: number;
   lastNudgedAt?: string;
+  aiSummary?: string;
 }
 
 /* ===================== CONTEXT ===================== */
@@ -273,7 +274,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
         const steps = form.approvalSteps.map((s) =>
           s.id === stepId
-            ? { ...s, status: 'approved', timestamp: new Date().toISOString() }
+            ? {
+                ...s,
+                status: 'approved' as const,
+                timestamp: new Date().toISOString(),
+              }
             : s
         );
 
@@ -288,10 +293,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         form.id === formId
           ? {
               ...form,
-              status: 'rejected',
+              status: 'rejected' as const,
               approvalSteps: form.approvalSteps.map((s) =>
                 s.id === stepId
-                  ? { ...s, status: 'rejected', comments }
+                  ? {
+                      ...s,
+                      status: 'rejected' as const,
+                      comments,
+                    }
                   : s
               ),
             }

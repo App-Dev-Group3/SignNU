@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter } from "react-router-dom";
 import { Dashboard } from "./pages/Dashboard";
 import { NewForm } from "./pages/NewForm";
 import { FormDetails } from "./pages/FormDetails";
