@@ -1,6 +1,14 @@
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const { Resend } = require('resend');
 const User = require('../models/user.js');
+
+const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const EMAIL_FROM = process.env.EMAIL_FROM || 'no-reply@signnu.work';
+
+const canAccessUser = (req, targetId) => req.user.id === targetId || req.user.role === 'Admin';
 
 const generateToken = (user) => {
     return jwt.sign(
@@ -27,6 +35,10 @@ const getAllUsers = async (req, res) => {
 // Get a single user by ID
 const getUserById = async (req, res) => {
     const { id } = req.params;
+    if (!canAccessUser(req, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
     try {
         const user = await User.findById(id).select('-password');
         if (!user) {
@@ -123,14 +135,114 @@ const getCurrentUser = async (req, res) => {
 const logoutUser = async (req, res) => {
     res.clearCookie('auth_token', {
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         secure: process.env.NODE_ENV === 'production',
     });
     res.status(200).json({ message: 'Logout successful' });
 };
 
+const changePassword = async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) {
+        return res.status(400).json({ error: 'oldPassword and newPassword are required' });
+    }
+    if (newPassword.length < 8) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const isMatch = await bcrypt.compare(oldPassword, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ error: 'Invalid current password' });
+        }
+
+        user.password = await bcrypt.hash(newPassword, 10);
+        user.passwordResetToken = undefined;
+        user.passwordResetTokenExpires = undefined;
+        await user.save();
+
+        res.status(200).json({ message: 'Password changed successfully' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+const requestPasswordReset = async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+        return res.status(400).json({ error: 'Email is required' });
+    }
+
+    try {
+        const normalizedEmail = email.toLowerCase().trim();
+        const user = await User.findOne({ email: normalizedEmail });
+
+        if (user) {
+            const token = crypto.randomBytes(32).toString('hex');
+            user.passwordResetToken = token;
+            user.passwordResetTokenExpires = Date.now() + 15 * 60 * 1000; // 15 minutes
+            await user.save();
+
+            const resetUrl = `${FRONTEND_URL}/reset-password?token=${encodeURIComponent(token)}`;
+            if (resendClient) {
+                await resendClient.emails.send({
+                    from: EMAIL_FROM,
+                    to: normalizedEmail,
+                    subject: 'SignNU Password Reset',
+                    html: `<p>We received a request to reset your SignNU password.</p><p><a href="${resetUrl}">Reset your password</a></p><p>If you did not request this, please ignore this email.</p>`,
+                });
+            } else {
+                console.warn('RESEND_API_KEY is not configured. Skipping password reset email.');
+            }
+        }
+
+        res.status(200).json({ message: 'If that email exists, a password reset link has been sent.' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+const resetPassword = async (req, res) => {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+        return res.status(400).json({ error: 'token and newPassword are required' });
+    }
+    if (newPassword.length < 8) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    try {
+        const user = await User.findOne({
+            passwordResetToken: token,
+            passwordResetTokenExpires: { $gt: Date.now() },
+        });
+
+        if (!user) {
+            return res.status(400).json({ error: 'Invalid or expired reset token' });
+        }
+
+        user.password = await bcrypt.hash(newPassword, 10);
+        user.passwordResetToken = undefined;
+        user.passwordResetTokenExpires = undefined;
+        await user.save();
+
+        res.status(200).json({ message: 'Password reset successfully' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
 const getUserNotifications = async (req, res) => {
     const { id } = req.params;
+    if (!canAccessUser(req, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
     try {
         const user = await User.findById(id);
         if (!user) {
@@ -153,6 +265,10 @@ const getUserNotifications = async (req, res) => {
 const addUserNotification = async (req, res) => {
     const { id } = req.params;
     const { formId, userId, message } = req.body;
+    if (!canAccessUser(req, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
     try {
         const user = await User.findById(id);
         if (!user) {
@@ -177,6 +293,10 @@ const addUserNotification = async (req, res) => {
 const updateUserNotification = async (req, res) => {
     const { id, notificationId } = req.params;
     const { read } = req.body;
+    if (!canAccessUser(req, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
     try {
         const user = await User.findById(id);
         if (!user) {
@@ -200,14 +320,32 @@ const updateUserNotification = async (req, res) => {
 const updateUser = async (req, res) => {
     const { id } = req.params;
     try {
-        if (req.user.id !== id && req.user.role !== 'Admin') {
+        if (!canAccessUser(req, id)) {
             return res.status(403).json({ error: 'Forbidden' });
         }
 
         const payload = { ...req.body };
         if (payload.password) {
+            const targetUser = await User.findById(id);
+            if (!targetUser) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+
+            if (req.user.role !== 'Admin') {
+                const { oldPassword } = req.body;
+                if (!oldPassword) {
+                    return res.status(400).json({ error: 'Current password is required to change password' });
+                }
+                const isMatch = await bcrypt.compare(oldPassword, targetUser.password);
+                if (!isMatch) {
+                    return res.status(401).json({ error: 'Invalid current password' });
+                }
+            }
+
             payload.password = await bcrypt.hash(payload.password, 10);
+            delete payload.oldPassword;
         }
+
         const user = await User.findByIdAndUpdate(id, payload, { new: true, runValidators: true }).select('-password');
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
@@ -255,6 +393,10 @@ const updateUserRole = async (req, res) => {
 // Delete a user
 const deleteUser = async (req, res) => {
     const { id } = req.params;
+    if (!canAccessUser(req, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
     try {
         const user = await User.findByIdAndDelete(id);
         if (!user) {
@@ -273,6 +415,9 @@ module.exports = {
     loginUser,
     getCurrentUser,
     logoutUser,
+    changePassword,
+    requestPasswordReset,
+    resetPassword,
     getUserNotifications,
     addUserNotification,
     updateUserNotification,

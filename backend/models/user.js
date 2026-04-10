@@ -26,6 +26,8 @@ const userSchema = new Schema({
     }
   },
   password: { type: String, required: true },
+  passwordResetToken: { type: String },
+  passwordResetTokenExpires: { type: Date },
   role: { type: String, default: 'user' },
   department: { type: String },
   notifications: [NotificationSchema]

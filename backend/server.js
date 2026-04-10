@@ -41,7 +41,30 @@ app.use((req, res) => {
 });
 
 // 6. Connect to MongoDB & Start Server
-mongoose.connect(process.env.MONGO_URI)
+const rawMongoUri = process.env.MONGO_URI;
+if (!rawMongoUri) {
+    console.error('MONGO_URI is not set. Please add it to your .env file.');
+    process.exit(1);
+}
+
+const ensureMongoDatabase = (uri) => {
+    try {
+        const parsed = new URL(uri);
+        const dbName = parsed.pathname ? parsed.pathname.replace(/^\//, '') : '';
+        if (!dbName) {
+            const defaultDb = 'SignNU';
+            console.warn(`MONGO_URI does not specify a database. Using default database '${defaultDb}'. Please update your .env to include '/${defaultDb}'.`);
+            return uri.replace(/(mongodb(?:\+srv)?:\/\/[^\/]+)(\/?)(\?.*)?$/, `$1/${defaultDb}$3`);
+        }
+        return uri;
+    } catch (err) {
+        return uri;
+    }
+};
+
+const mongoUri = ensureMongoDatabase(rawMongoUri);
+
+mongoose.connect(mongoUri)
     .then(() => {
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`Connected to DB & Server running on port ${PORT}`);
