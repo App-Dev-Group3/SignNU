@@ -10,6 +10,9 @@ import { Register } from "./pages/Register";
 import { Admin } from "./pages/Admin";
 import { Root } from "./pages/Root";
 
+// ✅ NEW PAGE IMPORT
+import { AccountSettings } from "./pages/AccountSettings";
+
 export const router = createBrowserRouter([
   {
     path: "/login",
@@ -28,6 +31,10 @@ export const router = createBrowserRouter([
       { path: "form/:id", Component: FormDetails },
       { path: "approvals", Component: ApprovalQueue },
       { path: "submissions", Component: MySubmissions },
+
+      // ✅ NEW ROUTE ADDED HERE
+      { path: "account-settings", Component: AccountSettings },
+
       { path: "admin", Component: Admin },
     ],
   },

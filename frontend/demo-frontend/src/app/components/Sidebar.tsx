@@ -1,5 +1,13 @@
 import { Link, useLocation, useNavigate } from 'react-router';
-import { LayoutDashboard, FileText, CheckSquare, FileCheck, School, LogOut } from 'lucide-react';
+import {
+  LayoutDashboard,
+  FileText,
+  CheckSquare,
+  FileCheck,
+  School,
+  LogOut,
+  Settings
+} from 'lucide-react';
 import { useWorkflow } from '../context/WorkflowContext';
 import { Button } from './ui/button';
 
@@ -22,7 +30,13 @@ export function Sidebar() {
     { path: '/new-form', icon: FileText, label: 'New Form' },
     { path: '/submissions', icon: FileCheck, label: 'My Submissions' },
     { path: '/approvals', icon: CheckSquare, label: 'Approval Queue' },
-    ...(currentUser.role === 'Admin' ? [{ path: '/admin', icon: School, label: 'Admin' }] : []),
+
+    // ✅ NEW FEATURE ADDED HERE
+    { path: '/account-settings', icon: Settings, label: 'Account Settings' },
+
+    ...(currentUser.role === 'Admin'
+      ? [{ path: '/admin', icon: School, label: 'Admin' }]
+      : []),
   ];
 
   return (
@@ -61,7 +75,7 @@ export function Sidebar() {
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             const Icon = item.icon;
-            
+
             return (
               <li key={item.path}>
                 <Link
@@ -83,10 +97,7 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-200">
-        <Button
-          className="w-full"
-          onClick={handleLogout}
-        >
+        <Button className="w-full" onClick={handleLogout}>
           <LogOut className="w-4 h-4 mr-2" />
           Logout
         </Button>

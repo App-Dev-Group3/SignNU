@@ -8,6 +8,9 @@ const {
     loginUser,
     getCurrentUser,
     logoutUser,
+    changePassword,
+    requestPasswordReset,
+    resetPassword,
     getUserNotifications,
     addUserNotification,
     updateUserNotification,
@@ -20,6 +23,9 @@ const adminMiddleware = require('../middleware/adminMiddleware.js');
 
 router.get('/', authMiddleware, adminMiddleware, getAllUsers);
 router.post('/login', loginUser);
+router.post('/forgot-password', requestPasswordReset);
+router.post('/reset-password', resetPassword);
+router.post('/change-password', authMiddleware, changePassword);
 router.get('/me', authMiddleware, getCurrentUser);
 router.post('/logout', authMiddleware, logoutUser);
 router.get('/:id/notifications', authMiddleware, getUserNotifications);
