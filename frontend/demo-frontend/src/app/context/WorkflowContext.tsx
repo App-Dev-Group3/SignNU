@@ -118,12 +118,12 @@ interface WorkflowContextType {
   register: (data: any) => Promise<boolean>;
   logout: () => void;
 
-  addForm: (form: Omit<FormSubmission, 'id' | 'submittedAt' | 'status' | 'currentStep' | 'signatureMarkers'>) => void;
-  updateForm: (id: string, updates: Partial<FormSubmission>) => void;
+  addForm: (form: Omit<FormSubmission, 'id' | 'submittedAt' | 'status' | 'currentStep' | 'signatureMarkers'>) => Promise<void>;
+  updateForm: (id: string, updates: Partial<FormSubmission>) => Promise<void>;
   getFormById: (id: string) => FormSubmission | undefined;
 
-  approveStep: (formId: string, stepId: string, comments?: string) => void;
-  rejectStep: (formId: string, stepId: string, comments: string) => void;
+  approveStep: (formId: string, stepId: string, comments?: string) => Promise<void>;
+  rejectStep: (formId: string, stepId: string, comments: string) => Promise<void>;
 
   addSignature: (formId: string, signature: Omit<Signature, 'id' | 'signedAt'>) => void;
   addAttachment: (formId: string, attachment: Omit<Attachment, 'id'>) => void;
@@ -151,17 +151,12 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined
 export function WorkflowProvider({ children }: { children: ReactNode }) {
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
-  const getToken = () => localStorage.getItem('token');
-
   const authFetch = async (url: string, options: RequestInit = {}) => {
-    const token = getToken();
-
     return fetch(url, {
       ...options,
       credentials: 'include',
       headers: {
         ...(options.headers || {}),
-        Authorization: token ? `Bearer ${token}` : '',
         'Content-Type': 'application/json',
       },
     });
@@ -205,20 +200,40 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     verify();
   }, []);
 
+  useEffect(() => {
+    const loadNotifications = async () => {
+      if (!currentUser) {
+        setNotifications([]);
+        return;
+      }
+
+      try {
+        const res = await authFetch(`${API_BASE_URL}/api/users/${currentUser.id}/notifications`);
+        if (!res.ok) throw new Error();
+
+        const data = await res.json();
+        setNotifications(data);
+      } catch {
+        setNotifications([]);
+      }
+    };
+
+    loadNotifications();
+  }, [currentUser]);
+
   /* ===================== LOGIN ===================== */
 
   const login = async (email: string, password: string) => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/users/login`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
       const data = await res.json();
       if (!res.ok) return false;
-
-      localStorage.setItem('token', data.token);
 
       setCurrentUser({
         id: data.user._id,
@@ -237,14 +252,20 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   /* ===================== LOGOUT ===================== */
 
   const logout = async () => {
-    localStorage.removeItem('token');
+    try {
+      await authFetch(`${API_BASE_URL}/api/users/logout`, {
+        method: 'POST',
+      });
+    } catch {
+      // ignore logout errors
+    }
     setCurrentUser(null);
     setIsAuthenticated(false);
   };
 
   /* ===================== FORMS ===================== */
 
-  const addForm = (form: any) => {
+  const addForm = async (form: any) => {
     const newForm = {
       ...form,
       id: `form-${Date.now()}`,
@@ -254,59 +275,111 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       signatureMarkers: [],
     };
 
-    setForms((prev) => [newForm, ...prev]);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/forms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newForm),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to save form');
+      }
+
+      const createdForm = await res.json();
+      setForms((prev) => [createdForm, ...prev]);
+    } catch (error) {
+      console.error('Unable to save form:', error);
+      setForms((prev) => [newForm, ...prev]);
+    }
   };
 
-  const updateForm = (id: string, updates: any) => {
-    setForms((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, ...updates } : f))
-    );
+  const updateForm = async (id: string, updates: any) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/forms/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to update form');
+      }
+
+      const updatedForm = await res.json();
+      setForms((prev) => prev.map((f) => (f.id === id ? updatedForm : f)));
+    } catch (error) {
+      console.error('Unable to update form:', error);
+      setForms((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
+    }
   };
 
   const getFormById = (id: string) => forms.find((f) => f.id === id);
 
+  useEffect(() => {
+    const fetchForms = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/forms`);
+        if (!res.ok) throw new Error('Failed to load forms');
+
+        const data = await res.json();
+        setForms(data);
+      } catch (error) {
+        console.error('Unable to load forms:', error);
+      }
+    };
+
+    fetchForms();
+  }, []);
+
   /* ===================== APPROVAL ===================== */
 
-  const approveStep = (formId: string, stepId: string) => {
-    setForms((prev) =>
-      prev.map((form) => {
-        if (form.id !== formId) return form;
+  const approveStep = async (formId: string, stepId: string) => {
+    const updatedForms = forms.map((form) => {
+      if (form.id !== formId) return form;
 
-        const steps = form.approvalSteps.map((s) =>
-          s.id === stepId
-            ? {
-                ...s,
-                status: 'approved' as const,
-                timestamp: new Date().toISOString(),
-              }
-            : s
-        );
+      const steps = form.approvalSteps.map((s) =>
+        s.id === stepId
+          ? {
+              ...s,
+              status: 'approved' as const,
+              timestamp: new Date().toISOString(),
+            }
+          : s
+      );
 
-        return { ...form, approvalSteps: steps };
-      })
-    );
+      return { ...form, approvalSteps: steps };
+    });
+
+    setForms(updatedForms);
+    updateForm(formId, updatedForms.find((f) => f.id === formId));
   };
 
-  const rejectStep = (formId: string, stepId: string, comments: string) => {
-    setForms((prev) =>
-      prev.map((form) =>
-        form.id === formId
-          ? {
-              ...form,
-              status: 'rejected' as const,
-              approvalSteps: form.approvalSteps.map((s) =>
-                s.id === stepId
-                  ? {
-                      ...s,
-                      status: 'rejected' as const,
-                      comments,
-                    }
-                  : s
-              ),
-            }
-          : form
-      )
+  const rejectStep = async (formId: string, stepId: string, comments: string) => {
+    const updatedForms = forms.map((form) =>
+      form.id === formId
+        ? {
+            ...form,
+            status: 'rejected' as const,
+            approvalSteps: form.approvalSteps.map((s) =>
+              s.id === stepId
+                ? {
+                    ...s,
+                    status: 'rejected' as const,
+                    comments,
+                  }
+                : s
+            ),
+          }
+        : form
     );
+
+    setForms(updatedForms);
+    updateForm(formId, updatedForms.find((f) => f.id === formId));
   };
 
   /* ===================== QR ===================== */
@@ -341,8 +414,46 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   /* ===================== NOTIFICATIONS ===================== */
 
-  const addNotification = async () => {};
-  const markNotificationRead = async () => {};
+  const addNotification = async (formId: string, userId: string, message: string) => {
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/users/${userId}/notifications`, {
+        method: 'POST',
+        body: JSON.stringify({ formId, userId, message }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        if (userId === currentUser?.id) {
+          setNotifications((prev) => [data, ...prev]);
+        }
+      }
+    } catch {
+      // ignore notification failures silently
+    }
+  };
+
+  const markNotificationRead = async (notificationId: string) => {
+    if (!currentUser) return;
+
+    try {
+      const res = await authFetch(
+        `${API_BASE_URL}/api/users/${currentUser.id}/notifications/${notificationId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ read: true }),
+        }
+      );
+
+      if (!res.ok) throw new Error();
+      setNotifications((prev) =>
+        prev.map((notification) =>
+          notification.id === notificationId ? { ...notification, read: true } : notification
+        )
+      );
+    } catch {
+      // ignore mark-read failures silently
+    }
+  };
 
   /* ===================== OTHER ===================== */
 

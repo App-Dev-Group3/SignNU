@@ -31,7 +31,12 @@ export function Admin() {
     const fetchUsers = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/api/users`, { credentials: 'include' });
+        const response = await fetch(`${API_BASE_URL}/api/users`, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
         if (!response.ok) {
           throw new Error('Failed to load users');
         }

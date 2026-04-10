@@ -53,6 +53,11 @@ export function Dashboard() {
   ];
 
   const recentForms = [...forms]
+    .filter((form) =>
+      currentUser.role === 'Admin' ||
+      form.submittedById === currentUser.id ||
+      form.approvalSteps.some((step) => step.userId === currentUser.id)
+    )
     .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
     .slice(0, 5);
 

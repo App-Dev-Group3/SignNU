@@ -55,6 +55,7 @@ export function NewForm() {
   const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string }>>([]);
   const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
   const [approvalSteps, setApprovalSteps] = useState<Array<{ role: string; userId: string; userName: string }>>([]);
+  const [userLoadError, setUserLoadError] = useState<string | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -71,9 +72,15 @@ export function NewForm() {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/users`);
+        const response = await fetch(`${API_BASE_URL}/api/users`, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
         if (!response.ok) {
-          throw new Error('Failed to load users');
+          const errorText = await response.text();
+          throw new Error(`Failed to load users: ${response.status} ${errorText}`);
         }
         const fetchedUsers = await response.json();
         setAvailableUsers(fetchedUsers.map((user: any) => ({
@@ -81,8 +88,10 @@ export function NewForm() {
           name: user.username || user.name || user.email,
           role: user.role,
         })));
-      } catch (error) {
+        setUserLoadError(null);
+      } catch (error: any) {
         console.error('Error loading approvers:', error);
+        setUserLoadError(error.message || 'Failed to load approvers');
       }
     };
 
@@ -131,8 +140,12 @@ export function NewForm() {
   };
 
   const getApproverOptions = (role: string) => {
-    return availableUsers.filter((user) => user.role === role);
+    const exactMatches = availableUsers.filter((user) => user.role === role);
+    return exactMatches.length > 0 ? exactMatches : availableUsers;
   };
+
+  const hasExactApproverForRole = (role: string) =>
+    availableUsers.some((user) => user.role === role);
 
   const buildApprovalSteps = (type: FormType) => {
     return approvalChains[type].map((step) => {
@@ -184,6 +197,11 @@ export function NewForm() {
               <CardDescription>Provide details about your request</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {userLoadError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {userLoadError}
+                </div>
+              )}
               {/* Form Type */}
               <div className="space-y-2">
                 <Label htmlFor="formType">Form Type *</Label>
@@ -346,14 +364,14 @@ export function NewForm() {
                             <SelectContent>
                               {getApproverOptions(step.role).map((user) => (
                                 <SelectItem key={user.id} value={user.id}>
-                                  {user.name}
+                                  {user.name} {user.role ? `(${user.role})` : ''}
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
-                          {getApproverOptions(step.role).length === 0 && (
+                          {!hasExactApproverForRole(step.role) && (
                             <p className="text-xs text-orange-600 col-span-full">
-                              No users with the role "{step.role}" were found. Create a user with that role or choose a different role in the backend.
+                              No exact match for role "{step.role}" was found. You can still choose another available approver from the list.
                             </p>
                           )}
                         </div>

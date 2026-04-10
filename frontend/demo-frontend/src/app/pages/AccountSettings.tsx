@@ -8,8 +8,6 @@ export function AccountSettings() {
 
   const API_BASE_URL = "http://localhost:4000";
 
-  const getToken = () => localStorage.getItem("token");
-
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -30,9 +28,9 @@ export function AccountSettings() {
         `${API_BASE_URL}/api/users/change-password`,
         {
           method: "POST",
+          credentials: 'include',
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${getToken()}`,
           },
           body: JSON.stringify({
             oldPassword,

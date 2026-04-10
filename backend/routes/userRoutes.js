@@ -21,7 +21,7 @@ const {
 const authMiddleware = require('../middleware/authMiddleware.js');
 const adminMiddleware = require('../middleware/adminMiddleware.js');
 
-router.get('/', authMiddleware, adminMiddleware, getAllUsers);
+router.get('/', authMiddleware, getAllUsers);
 router.post('/login', loginUser);
 router.post('/forgot-password', requestPasswordReset);
 router.post('/reset-password', resetPassword);
