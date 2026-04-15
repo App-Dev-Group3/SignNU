@@ -11,6 +11,13 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Import the promises-based version of Node.js's DNS module const 
+dns = require("node:dns/promises"); 
+
+// Configures the DNS servers that Node.js will use for all subsequent DNS lookups 
+// Cloudflare + Google DNS 
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
+
 // 2. ENABLE CORS (Place this before your routes!)
 app.use(cors({
   origin: FRONTEND_URL,

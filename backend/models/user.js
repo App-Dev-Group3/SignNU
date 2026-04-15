@@ -30,7 +30,8 @@ const userSchema = new Schema({
   passwordResetTokenExpires: { type: Date },
   role: { type: String, default: 'user' },
   department: { type: String },
-  notifications: [NotificationSchema]
+  notifications: [NotificationSchema],
+  signatureURL: { type: String }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 module.exports = mongoose.model('User', userSchema);

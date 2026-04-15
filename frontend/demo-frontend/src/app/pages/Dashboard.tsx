@@ -79,6 +79,14 @@ export function Dashboard() {
             </Button>
           </Link>
         </div>
+        <div className="mb-8">
+          <Link to="/DigitalSignatureProfile">
+            <Button size="lg" className="gap-2">
+              <Plus className="w-5 h-5" />
+              Digital Signature Profile
+            </Button>
+          </Link>
+        </div>
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">

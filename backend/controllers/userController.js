@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { Resend } = require('resend');
 const User = require('../models/user.js');
+const cloudinary = require('cloudinary').v2;
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -21,6 +22,14 @@ const generateToken = (user) => {
         { expiresIn: '1h' }
     );
 };
+
+// Return "https" URLs by setting secure: true
+cloudinary.config({
+  secure: true
+});
+
+// Log the configuration
+console.log(cloudinary.config());
 
 // Get all users
 const getAllUsers = async (req, res) => {
@@ -431,6 +440,72 @@ const updateUserRole = async (req, res) => {
     }
 };
 
+// Upload to Cloudinary
+const uploadToCloudinary = (buffer, id) => {
+    // Use a Promise to handle the asynchronous upload
+    // Resolve with the secure URL of the uploaded image or reject with an error
+    return new Promise((resolve, reject) => {
+        // Use the upload_stream method to upload the file buffer directly
+        const uploadStream = cloudinary.uploader.upload_stream(
+        {
+            // Specify the folder and allowed formats for the uploaded signature images
+            folder: 'signatures',
+            allowed_formats: ['png', 'jpg', 'jpeg'],
+            transformation: [{ width: 300, height: 100, crop: 'fit' }],
+            public_id: `${id}_signature`
+        },
+        // Callback function to handle the upload result
+        (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+        }
+        );
+        // End the upload stream with the signature file buffer
+        uploadStream.end(buffer);
+    });
+};
+
+// Update user signature
+const updateSignature = async (req, res) => {
+    const { id } = req.params;
+    const signatureFile = req.file;
+    const { signatureData } = req.body;
+
+    let buffer;
+
+    if (signatureFile) {
+        buffer = signatureFile.buffer;
+    } 
+    else if (signatureData) {
+        // Extract the base64 data from the signatureData string
+        const matches = signatureData.match(/^data:image\/png;base64,(.+)$/);
+
+    if (!matches) {
+        return res.status(400).json({
+        error: 'Invalid signature data. Expected base64 PNG.'
+        });
+    }
+    // Convert the base64 string to a buffer
+    buffer = Buffer.from(matches[1], 'base64');
+    } 
+    else {
+        return res.status(400).json({
+            error: 'No signature provided. Upload a file or draw a signature.'
+        });
+    }
+
+    const uploadResult = await uploadToCloudinary(buffer, id);
+
+    const uploadedSignatureURL = uploadResult.secure_url;
+
+    await User.findByIdAndUpdate(id, { signatureURL: uploadedSignatureURL });
+
+    res.status(200).json({
+        message: 'Signature updated successfully',
+        signatureURL: uploadedSignatureURL
+    });
+};
+
 // Delete a user
 const deleteUser = async (req, res) => {
     const { id } = req.params;
@@ -464,5 +539,6 @@ module.exports = {
     updateUserNotification,
     updateUser,
     updateUserRole,
+    updateSignature,
     deleteUser,
 };

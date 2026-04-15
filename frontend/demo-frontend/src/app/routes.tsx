@@ -13,6 +13,8 @@ import { Root } from "./pages/Root";
 // ✅ NEW PAGE IMPORT
 import { AccountSettings } from "./pages/AccountSettings";
 
+import DigitalSignatureProfile from "./pages/DigitalSignatureProfile";
+
 export const router = createBrowserRouter([
   {
     path: "/login",
@@ -42,4 +44,8 @@ export const router = createBrowserRouter([
     path: "/qr/:token",
     Component: QRSignature,
   },
+  {
+    path: "/DigitalSignatureProfile",
+    Component: DigitalSignatureProfile,
+  }
 ]);

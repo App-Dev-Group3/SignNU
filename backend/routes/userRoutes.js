@@ -1,6 +1,13 @@
 const express = require('express');
 const router = express.Router();
 
+// Multer setup for handling file uploads (e.g., signature images)
+const multer = require('multer');
+// Use memory storage for multer to handle file uploads in memory
+const storage = multer.memoryStorage();
+// Create the multer instance with the defined storage
+const upload = multer({ storage });
+
 const {
     getAllUsers,
     getUserById,
@@ -16,6 +23,7 @@ const {
     updateUserNotification,
     updateUser,
     updateUserRole,
+    updateSignature,    
     deleteUser,
 } = require('../controllers/userController.js');
 const authMiddleware = require('../middleware/authMiddleware.js');
@@ -35,6 +43,7 @@ router.get('/:id', authMiddleware, getUserById);
 router.post('/', createUser);
 router.patch('/:id', authMiddleware, updateUser);
 router.patch('/:id/role', authMiddleware, adminMiddleware, updateUserRole);
+router.patch('/:id/signature', upload.single('signatureFile'), updateSignature);
 router.delete('/:id', authMiddleware, deleteUser);
 
 module.exports = router;
