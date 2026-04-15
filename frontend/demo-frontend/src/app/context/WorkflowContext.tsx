@@ -464,6 +464,48 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const generateAISummary = async () => {};
   const downloadFormPDF = () => {};
 
+  const register = async (data: {
+    name: string;
+    email: string;
+    password: string;
+    role: string;
+    department: string;
+  }) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/users`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: data.name,
+          email: data.email.toLowerCase().trim(),
+          password: data.password,
+          role: data.role,
+          department: data.department,
+        }),
+      });
+
+      const responseData = await res.json();
+      if (!res.ok || !responseData.token || !responseData.user) {
+        console.error('Register failed:', responseData);
+        return false;
+      }
+
+      setCurrentUser({
+        id: responseData.user._id ?? responseData.user.id,
+        name: responseData.user.username ?? responseData.user.email,
+        role: responseData.user.role,
+        email: responseData.user.email,
+      });
+      setIsAuthenticated(true);
+
+      return true;
+    } catch (error) {
+      console.error('Register error:', error);
+      return false;
+    }
+  };
+
   return (
     <WorkflowContext.Provider
       value={{
@@ -476,7 +518,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         qrSessions,
 
         login,
-        register: async () => true,
+        register,
         logout,
 
         addForm,
