@@ -72,6 +72,7 @@ export interface CurrentUser {
   role: UserRole;
   department?: string;
   email?: string;
+  signatureURL?: string;
 }
 
 export interface ApprovalStep {
@@ -98,6 +99,7 @@ export interface FormSubmission {
   approvalSteps: ApprovalStep[];
   signatures: Signature[];
   signatureMarkers: SignatureMarker[];
+  generatedPdfURL?: string;
   currentStep: number;
   lastNudgedAt?: string;
   aiSummary?: string;
@@ -118,7 +120,7 @@ interface WorkflowContextType {
   register: (data: any) => Promise<boolean>;
   logout: () => void;
 
-  addForm: (form: Omit<FormSubmission, 'id' | 'submittedAt' | 'status' | 'currentStep' | 'signatureMarkers'>) => Promise<void>;
+  addForm: (form: Omit<FormSubmission, 'submittedAt' | 'currentStep' | 'signatureMarkers'>) => Promise<FormSubmission | undefined>;
   updateForm: (id: string, updates: Partial<FormSubmission>) => Promise<void>;
   getFormById: (id: string) => FormSubmission | undefined;
 
@@ -126,7 +128,25 @@ interface WorkflowContextType {
   rejectStep: (formId: string, stepId: string, comments: string) => Promise<void>;
 
   addSignature: (formId: string, signature: Omit<Signature, 'id' | 'signedAt'>) => void;
+  removeSignature: (formId: string, signatureId: string) => void;
   addAttachment: (formId: string, attachment: Omit<Attachment, 'id'>) => void;
+  uploadUserPdf: (file: File) => Promise<string>;
+  generateFormPdf: (
+    formId: string,
+    pdfFile: File,
+    textFields: Record<string, string>,
+    ownerSignature: string | null,
+    assignedSignature: string | null,
+    annotations?: Array<{
+      id: string;
+      type: 'text' | 'signature';
+      text: string;
+      xPct: number;
+      yPct: number;
+      widthPct: number;
+      heightPct: number;
+    }>
+  ) => Promise<string>;
 
   generateQRSession: (formId: string, stepId: string) => QRSession;
   validateQRSession: (token: string) => QRSession | null;
@@ -186,6 +206,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           role: data.user.role,
           email: data.user.email,
           department: data.user.department,
+          signatureURL: data.user.signatureURL ?? data.user.signatureUrl,
         });
 
         setIsAuthenticated(true);
@@ -268,9 +289,9 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const addForm = async (form: any) => {
     const newForm = {
       ...form,
-      id: `form-${Date.now()}`,
+      id: form.id ?? `form-${Date.now()}`,
       submittedAt: new Date().toISOString(),
-      status: 'pending',
+      status: form.status ?? 'pending',
       currentStep: 0,
       signatureMarkers: [],
     };
@@ -290,9 +311,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
       const createdForm = await res.json();
       setForms((prev) => [createdForm, ...prev]);
+      return createdForm;
     } catch (error) {
       console.error('Unable to save form:', error);
       setForms((prev) => [newForm, ...prev]);
+      return newForm;
     }
   };
 
@@ -342,7 +365,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     const updatedForms = forms.map((form) => {
       if (form.id !== formId) return form;
 
-      const steps = form.approvalSteps.map((s) =>
+      const approvedSteps = form.approvalSteps.map((s) =>
         s.id === stepId
           ? {
               ...s,
@@ -352,7 +375,15 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           : s
       );
 
-      return { ...form, approvalSteps: steps };
+      const nextPendingStep = approvedSteps.findIndex((s) => s.status === 'pending');
+      const isFinalApproval = nextPendingStep === -1;
+
+      return {
+        ...form,
+        approvalSteps: approvedSteps,
+        currentStep: isFinalApproval ? form.currentStep : nextPendingStep,
+        status: isFinalApproval ? 'approved' as const : form.status,
+      };
     });
 
     setForms(updatedForms);
@@ -371,6 +402,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
                     ...s,
                     status: 'rejected' as const,
                     comments,
+                    timestamp: new Date().toISOString(),
                   }
                 : s
             ),
@@ -432,6 +464,71 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const uploadUserPdf = async (file: File) => {
+    if (!currentUser) {
+      throw new Error('User must be authenticated to upload PDF');
+    }
+
+    const formData = new FormData();
+    formData.append('pdfFile', file);
+
+    const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/pdf`, {
+      method: 'PATCH',
+      credentials: 'include',
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to upload PDF');
+    }
+
+    return data.pdfURL;
+  };
+
+  const generateFormPdf = async (
+    formId: string,
+    pdfFile: File,
+    textFields: Record<string, string>,
+    ownerSignature: string | null,
+    assignedSignature: string | null,
+    annotations?: Array<{
+      id: string;
+      type: 'text' | 'signature';
+      text: string;
+      xPct: number;
+      yPct: number;
+      widthPct: number;
+      heightPct: number;
+    }>
+  ) => {
+    const formData = new FormData();
+    formData.append('pdfFile', pdfFile);
+    formData.append('textFields', JSON.stringify(textFields));
+    if (ownerSignature) {
+      formData.append('ownerSignature', ownerSignature);
+    }
+    if (assignedSignature) {
+      formData.append('assignedSignature', assignedSignature);
+    }
+    if (annotations) {
+      formData.append('annotations', JSON.stringify(annotations));
+    }
+
+    const res = await fetch(`${API_BASE_URL}/api/forms/${formId}/pdf`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to generate PDF');
+    }
+    return data.pdfURL;
+  };
+
   const markNotificationRead = async (notificationId: string) => {
     if (!currentUser) return;
 
@@ -457,12 +554,103 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   /* ===================== OTHER ===================== */
 
-  const addSignature = () => {};
-  const addAttachment = () => {};
-  const addSignatureMarker = () => {};
-  const sendNudge = () => {};
-  const generateAISummary = async () => {};
-  const downloadFormPDF = () => {};
+  const addSignature = (formId: string, signature: Omit<Signature, 'id' | 'signedAt'>) => {
+    setForms((prev) =>
+      prev.map((form) =>
+        form.id === formId
+          ? {
+              ...form,
+              signatures: [
+                ...form.signatures,
+                {
+                  id: `sig-${Date.now()}`,
+                  signedAt: new Date().toISOString(),
+                  ...signature,
+                },
+              ],
+            }
+          : form
+      )
+    );
+  };
+
+  const removeSignature = (formId: string, signatureId: string) => {
+    setForms((prev) =>
+      prev.map((form) =>
+        form.id === formId
+          ? {
+              ...form,
+              signatures: form.signatures.filter((sig) => sig.id !== signatureId),
+            }
+          : form
+      )
+    );
+  };
+
+  const addAttachment = (formId: string, attachment: Omit<Attachment, 'id'>) => {
+    setForms((prev) =>
+      prev.map((form) =>
+        form.id === formId
+          ? {
+              ...form,
+              attachments: [
+                ...form.attachments,
+                {
+                  id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                  ...attachment,
+                },
+              ],
+            }
+          : form
+      )
+    );
+  };
+
+  const addSignatureMarker = (formId: string, marker: Omit<SignatureMarker, 'id'>) => {
+    setForms((prev) =>
+      prev.map((form) =>
+        form.id === formId
+          ? {
+              ...form,
+              signatureMarkers: [
+                ...form.signatureMarkers,
+                {
+                  id: `marker-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                  ...marker,
+                },
+              ],
+            }
+          : form
+      )
+    );
+  };
+
+  const sendNudge = (formId: string) => {
+    const form = forms.find((f) => f.id === formId);
+    if (!form) return;
+    toast.success('Nudge sent successfully');
+  };
+
+  const generateAISummary = async (formId: string) => {
+    const form = forms.find((f) => f.id === formId);
+    if (!form) return;
+    setForms((prev) =>
+      prev.map((f) =>
+        f.id === formId
+          ? {
+              ...f,
+              aiSummary: `This form titled "${form.title}" is a ${form.type} request with ${form.approvalSteps.length} required approvals.`,
+            }
+          : f
+      )
+    );
+  };
+
+  const downloadFormPDF = (formId: string) => {
+    const form = forms.find((f) => f.id === formId);
+    if (!form) return;
+    // default behavior remains unchanged
+  };
 
   const register = async (data: {
     name: string;
@@ -517,6 +705,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         notifications,
         qrSessions,
 
+
         login,
         register,
         logout,
@@ -529,7 +718,10 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         rejectStep,
 
         addSignature,
+        removeSignature,
         addAttachment,
+        uploadUserPdf,
+        generateFormPdf,
 
         generateQRSession,
         validateQRSession,

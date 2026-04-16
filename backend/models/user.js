@@ -31,7 +31,8 @@ const userSchema = new Schema({
   role: { type: String, default: 'user' },
   department: { type: String },
   notifications: [NotificationSchema],
-  signatureURL: { type: String }
+  signatureURL: { type: String },
+  pdfURL: { type: String }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 module.exports = mongoose.model('User', userSchema);

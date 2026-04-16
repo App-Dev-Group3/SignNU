@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const path = require('path');
 const { Resend } = require('resend');
 const User = require('../models/user.js');
 const cloudinary = require('cloudinary').v2;
@@ -448,11 +449,11 @@ const uploadToCloudinary = (buffer, id) => {
         // Use the upload_stream method to upload the file buffer directly
         const uploadStream = cloudinary.uploader.upload_stream(
         {
-            // Specify the folder and allowed formats for the uploaded signature images
-            folder: 'signatures',
+            // Store each user's uploads in their own folder
+            folder: `signatures/${id}`,
             allowed_formats: ['png', 'jpg', 'jpeg'],
             transformation: [{ width: 300, height: 100, crop: 'fit' }],
-            public_id: `${id}_signature`
+            public_id: 'signature'
         },
         // Callback function to handle the upload result
         (error, result) => {
@@ -461,6 +462,33 @@ const uploadToCloudinary = (buffer, id) => {
         }
         );
         // End the upload stream with the signature file buffer
+        uploadStream.end(buffer);
+    });
+};
+
+const sanitizePublicId = (filename) => {
+    const baseName = path.parse(filename).name;
+    return baseName
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9_-]/g, '')
+        .slice(0, 200) || 'document';
+};
+
+const uploadRawToCloudinary = (buffer, id, filename) => {
+    const publicId = `${sanitizePublicId(filename)}_${Date.now()}`;
+    return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+        {
+            resource_type: 'raw',
+            folder: `pdfs/${id}`,
+            allowed_formats: ['pdf'],
+            public_id: publicId,
+        },
+        (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+        }
+        );
         uploadStream.end(buffer);
     });
 };
@@ -506,6 +534,27 @@ const updateSignature = async (req, res) => {
     });
 };
 
+const updatePdf = async (req, res) => {
+    const { id } = req.params;
+    const pdfFile = req.file;
+
+    if (!pdfFile) {
+        return res.status(400).json({ error: 'No PDF file provided. Use form field pdfFile.' });
+    }
+
+    const uploadResult = await uploadRawToCloudinary(pdfFile.buffer, id, pdfFile.originalname);
+    const uploadedPdfURL = uploadResult.secure_url;
+
+    await User.findByIdAndUpdate(id, { pdfURL: uploadedPdfURL });
+
+    res.status(200).json({
+        message: 'PDF uploaded successfully',
+        pdfURL: uploadedPdfURL,
+        public_id: uploadResult.public_id,
+        folder: uploadResult.folder,
+    });
+};
+
 // Delete a user
 const deleteUser = async (req, res) => {
     const { id } = req.params;
@@ -540,5 +589,6 @@ module.exports = {
     updateUser,
     updateUserRole,
     updateSignature,
+    updatePdf,
     deleteUser,
 };

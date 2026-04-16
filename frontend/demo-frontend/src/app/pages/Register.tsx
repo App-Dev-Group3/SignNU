@@ -243,6 +243,7 @@ export function Register() {
                             <SelectItem value="scs">SCS</SelectItem>
                             <SelectItem value="sabm">SABM</SelectItem>
                             <SelectItem value="sas">SAS</SelectItem>
+                             <SelectItem value='sea'>SEA</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

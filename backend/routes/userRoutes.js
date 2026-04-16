@@ -23,7 +23,8 @@ const {
     updateUserNotification,
     updateUser,
     updateUserRole,
-    updateSignature,    
+    updateSignature,
+    updatePdf,
     deleteUser,
 } = require('../controllers/userController.js');
 const authMiddleware = require('../middleware/authMiddleware.js');
@@ -44,6 +45,8 @@ router.post('/', createUser);
 router.patch('/:id', authMiddleware, updateUser);
 router.patch('/:id/role', authMiddleware, adminMiddleware, updateUserRole);
 router.patch('/:id/signature', upload.single('signatureFile'), updateSignature);
+router.patch('/:id/pdf', authMiddleware, upload.single('pdfFile'), updatePdf);
+router.post('/:id/pdf', authMiddleware, upload.single('pdfFile'), updatePdf);
 router.delete('/:id', authMiddleware, deleteUser);
 
 module.exports = router;
