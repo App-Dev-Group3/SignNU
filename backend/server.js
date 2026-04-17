@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors'); // 1. REQUIRE CORS AT THE TOP
+const session = require('express-session');
 const approvalRoutes = require('./routes/route');
 const userRoutes = require('./routes/userRoutes');
 const formRoutes = require('./routes/formRoutes');
@@ -10,11 +11,35 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Import the promises-based version of Node.js's DNS module const 
+dns = require("node:dns/promises"); 
+
+// Configures the DNS servers that Node.js will use for all subsequent DNS lookups 
+// Cloudflare + Google DNS 
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
+
 // 2. ENABLE CORS (Place this before your routes!)
 app.use(cors({
   origin: FRONTEND_URL,
   credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
 })); 
+
+// 3. Session middleware
+app.use(
+  session({
+    name: process.env.SESSION_COOKIE_NAME || 'signnu_session',
+    secret: process.env.SESSION_SECRET || 'secret123',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 1000, // 1 hour
+    },
+  })
+);
 
 // 1. JSON Parser Middleware
 app.use(express.json());

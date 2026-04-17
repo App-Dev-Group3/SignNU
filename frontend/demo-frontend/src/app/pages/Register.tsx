@@ -200,38 +200,57 @@ export function Register() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="role" className="text-sm font-medium">Role *</Label>
+                      <div className="relative">
+                        <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10 pointer-events-none" />
+                        <Select
+                          value={formData.role}
+                          onValueChange={(value) => updateField('role', value)}
+                          disabled={isLoading}
+                        >
+                          <SelectTrigger className="pl-12 h-11 border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20">
+                            <SelectValue placeholder="Select role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Department Head">Department Head</SelectItem>
+                            <SelectItem value="Dean">Dean</SelectItem>
+                            <SelectItem value="Faculty">Faculty</SelectItem>
+                            <SelectItem value="Staff">Staff</SelectItem>
+                            <SelectItem value="Student">Student</SelectItem>
+                            <SelectItem value="Finance Officer">Finance Officer</SelectItem>
+                            <SelectItem value="Procurement Officer">Procurement Officer</SelectItem>
+                            <SelectGroup>
+                              <SelectLabel>VP - Departments</SelectLabel>
+                              <SelectItem value="VP for Academics">VP for Academics</SelectItem>
+                              <SelectItem value="VP for Finance">VP for Finance</SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
 
-                    <Select onValueChange={(value) => updateField('role', value)}>
-                      <SelectTrigger className="h-11">
-                        <SelectValue placeholder="Role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Department Head">Department Head</SelectItem>
-                        <SelectItem value="Dean">Dean</SelectItem>
-                        <SelectItem value="Faculty">Faculty</SelectItem>
-                        <SelectItem value="Staff">Staff</SelectItem>
-                        <SelectItem value="Student">Student</SelectItem>
-                        <SelectItem value="Finance Officer">Finance Officer</SelectItem>
-                        <SelectItem value="Procurement Officer">Procurement Officer</SelectItem>
-                        <SelectGroup>
-                          <SelectLabel>VP - Departments</SelectLabel>
-                          <SelectItem value="VP for Academics">VP for Academics</SelectItem>
-                          <SelectItem value="VP for Finance">VP for Finance</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-
-                    <Select onValueChange={(value) => updateField('department', value)}>
-                      <SelectTrigger className="h-11">
-                        <SelectValue placeholder="Department" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="scs">SCS</SelectItem>
-                        <SelectItem value="sabm">SABM</SelectItem>
-                        <SelectItem value="sas">SAS</SelectItem>
-                      </SelectContent>
-                    </Select>
-
+                    <div className="space-y-2">
+                      <Label htmlFor="department" className="text-sm font-medium">Department *</Label>
+                      <div className="relative">
+                        <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10 pointer-events-none" />
+                        <Select
+                          value={formData.department}
+                          onValueChange={(value) => updateField('department', value)}
+                          disabled={isLoading}
+                        >
+                          <SelectTrigger className="pl-12 h-11 border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20">
+                            <SelectValue placeholder="Select department" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="scs">SCS</SelectItem>
+                            <SelectItem value="sabm">SABM</SelectItem>
+                            <SelectItem value="sas">SAS</SelectItem>
+                             <SelectItem value='sea'>SEA</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="space-y-2">

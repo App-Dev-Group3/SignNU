@@ -2,20 +2,35 @@ import { Link } from 'react-router';
 import { useWorkflow } from '../context/WorkflowContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { FileText, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 export function MySubmissions() {
-  const { forms, currentUser } = useWorkflow();
+  const { forms, currentUser, deleteForm } = useWorkflow();
   const [search, setSearch] = useState('');
 
   if (!currentUser) {
     return null;
   }
   const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  const handleDeleteDraft = async (id: string) => {
+    const confirmed = window.confirm('Delete this draft? This action cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      await deleteForm(id);
+      toast.success('Draft deleted successfully');
+    } catch (error) {
+      console.error('Delete draft failed:', error);
+      toast.error('Unable to delete draft');
+    }
+  };
 
   const myForms = forms
     .filter(f => f.submittedById === currentUser.id)
@@ -52,6 +67,7 @@ export function MySubmissions() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
@@ -75,65 +91,81 @@ export function MySubmissions() {
         ) : (
           <div className="space-y-4">
             {myForms.map((form) => (
-              <Link key={form.id} to={`/form/${form.id}`}>
-                <Card className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="font-semibold text-gray-900">{form.title}</h3>
-                          <Badge
-                            variant={
-                              form.status === 'approved'
-                                ? 'default'
-                                : form.status === 'rejected'
-                                ? 'destructive'
-                                : 'secondary'
-                            }
-                          >
-                            {form.status}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-gray-600 mb-3">{form.description}</p>
-                        <div className="flex items-center gap-4 text-sm text-gray-500">
-                          <span className="flex items-center gap-1">
-                            <FileText className="w-4 h-4" />
-                            {form.type}
-                          </span>
-                          <span>•</span>
-                          <span>Submitted {format(new Date(form.submittedAt), 'MMM d, yyyy')}</span>
-                          <span>•</span>
-                          <span>
-                            Step {form.currentStep + 1} of {form.approvalSteps.length}
-                          </span>
-                        </div>
+              <Card key={form.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <Link to={`/form/${form.id}`} className="font-semibold text-gray-900 hover:text-blue-700">
+                          {form.title}
+                        </Link>
+                        <Badge
+                          variant={
+                            form.status === 'approved'
+                              ? 'default'
+                              : form.status === 'rejected'
+                              ? 'destructive'
+                              : 'secondary'
+                          }
+                        >
+                          {form.status}
+                        </Badge>
                       </div>
-                      
-                      {/* Progress indicator */}
-                      <div className="ml-6">
-                        <div className="flex items-center gap-2">
-                          {form.approvalSteps.map((step, index) => (
-                            <div
-                              key={step.id}
-                              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
-                                step.status === 'approved'
-                                  ? 'bg-green-100 text-green-700'
-                                  : step.status === 'rejected'
-                                  ? 'bg-red-100 text-red-700'
-                                  : index === form.currentStep
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-gray-100 text-gray-500'
-                              }`}
-                            >
-                              {index + 1}
-                            </div>
-                          ))}
-                        </div>
+                      <p className="text-sm text-gray-600 mb-3">{form.description}</p>
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <FileText className="w-4 h-4" />
+                          {form.type}
+                        </span>
+                        <span>•</span>
+                        <span>Submitted {format(new Date(form.submittedAt), 'MMM d, yyyy')}</span>
+                        <span>•</span>
+                        <span>
+                          Step {form.currentStep + 1} of {form.approvalSteps.length}
+                        </span>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              </Link>
+
+                    <div className="flex flex-wrap items-start gap-2">
+                      <Link to={`/form/${form.id}`}>
+                        <Button size="sm">View Details</Button>
+                      </Link>
+                      {form.status === 'draft' && form.submittedById === currentUser.id && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeleteDraft(form.id)}
+                          className="whitespace-nowrap"
+                        >
+                          Delete Draft
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Progress indicator */}
+                  <div className="mt-4">
+                    <div className="flex items-center gap-2">
+                      {form.approvalSteps.map((step, index) => (
+                        <div
+                          key={step.id}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                            step.status === 'approved'
+                              ? 'bg-green-100 text-green-700'
+                              : step.status === 'rejected'
+                              ? 'bg-red-100 text-red-700'
+                              : index === form.currentStep
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-gray-100 text-gray-500'
+                          }`}
+                        >
+                          {index + 1}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
         )}

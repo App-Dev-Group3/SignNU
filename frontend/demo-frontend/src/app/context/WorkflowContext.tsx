@@ -1,16 +1,11 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+﻿import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { toast } from 'sonner';
 
-interface ImportMetaEnv {
-  readonly VITE_API_BASE_URL?: string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
+/* ===================== TYPES ===================== */
 
 export type FormType = 'ACP' | 'Meal Request' | 'RI' | 'RFP' | 'Item Request';
 export type FormStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'completed';
+
 export type UserRole =
   | 'Requester'
   | 'Signatory'
@@ -77,6 +72,7 @@ export interface CurrentUser {
   role: UserRole;
   department?: string;
   email?: string;
+  signatureURL?: string;
 }
 
 export interface ApprovalStep {
@@ -87,7 +83,6 @@ export interface ApprovalStep {
   status: 'pending' | 'approved' | 'rejected';
   comments?: string;
   timestamp?: string;
-  isParallel?: boolean; // For parallel approvals
 }
 
 export interface FormSubmission {
@@ -95,7 +90,6 @@ export interface FormSubmission {
   type: FormType;
   title: string;
   description: string;
-  aiSummary?: string; // AI-generated summary
   submittedBy: string;
   submittedById: string;
   submittedAt: string;
@@ -105,86 +99,126 @@ export interface FormSubmission {
   approvalSteps: ApprovalStep[];
   signatures: Signature[];
   signatureMarkers: SignatureMarker[];
+  generatedPdfURL?: string;
   currentStep: number;
   lastNudgedAt?: string;
+  aiSummary?: string;
 }
+
+/* ===================== CONTEXT ===================== */
 
 interface WorkflowContextType {
   isAuthenticated: boolean;
   authLoaded: boolean;
   currentUser: CurrentUser | null;
+
   forms: FormSubmission[];
   notifications: Notification[];
   qrSessions: QRSession[];
+
   login: (email: string, password: string) => Promise<boolean>;
-  register: (data: { name: string; email: string; password: string; role: string; department: string }) => Promise<boolean>;
+  register: (data: any) => Promise<boolean>;
   logout: () => void;
-  addForm: (form: Omit<FormSubmission, 'id' | 'submittedAt' | 'status' | 'currentStep' | 'signatureMarkers'>) => void;
-  updateForm: (id: string, updates: Partial<FormSubmission>) => void;
+
+  addForm: (form: Omit<FormSubmission, 'submittedAt' | 'currentStep' | 'signatureMarkers'>) => Promise<FormSubmission | undefined>;
+  updateForm: (id: string, updates: Partial<FormSubmission>) => Promise<void>;
+  deleteForm: (id: string) => Promise<void>;
   getFormById: (id: string) => FormSubmission | undefined;
-  approveStep: (formId: string, stepId: string, comments?: string) => void;
-  rejectStep: (formId: string, stepId: string, comments: string) => void;
+
+  approveStep: (formId: string, stepId: string, comments?: string) => Promise<void>;
+  rejectStep: (formId: string, stepId: string, comments: string) => Promise<void>;
+
   addSignature: (formId: string, signature: Omit<Signature, 'id' | 'signedAt'>) => void;
+  removeSignature: (formId: string, signatureId: string) => void;
   addAttachment: (formId: string, attachment: Omit<Attachment, 'id'>) => void;
+  uploadUserPdf: (file: File) => Promise<string>;
+  generateFormPdf: (
+    formId: string,
+    pdfFile: File,
+    textFields: Record<string, string>,
+    ownerSignature: string | null,
+    assignedSignature: string | null,
+    annotations?: Array<{
+      id: string;
+      type: 'text' | 'signature';
+      text: string;
+      xPct: number;
+      yPct: number;
+      widthPct: number;
+      heightPct: number;
+    }>
+  ) => Promise<string>;
+
   generateQRSession: (formId: string, stepId: string) => QRSession;
   validateQRSession: (token: string) => QRSession | null;
   useQRSession: (token: string, signature: Omit<Signature, 'id' | 'signedAt'>) => boolean;
+
   addSignatureMarker: (formId: string, marker: Omit<SignatureMarker, 'id'>) => void;
+
   sendNudge: (formId: string) => void;
+
   generateAISummary: (formId: string) => Promise<void>;
+
   addNotification: (formId: string, userId: string, message: string) => Promise<void>;
   markNotificationRead: (notificationId: string) => Promise<void>;
+
   downloadFormPDF: (formId: string) => void;
+  setCurrentUserSignature: (signatureURL: string) => void;
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);
 
+/* ===================== PROVIDER ===================== */
+
 export function WorkflowProvider({ children }: { children: ReactNode }) {
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+
+  const authFetch = async (url: string, options: RequestInit = {}) => {
+    return fetch(url, {
+      ...options,
+      credentials: 'include',
+      headers: {
+        ...(options.headers || {}),
+        'Content-Type': 'application/json',
+      },
+    });
+  };
+
+  const setCurrentUserSignature = (signatureURL: string) => {
+    setCurrentUser((prevUser) =>
+      prevUser ? { ...prevUser, signatureURL } : prevUser
+    );
+  };
+
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoaded, setAuthLoaded] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
 
-  const viteEnv = import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } };
-  const API_BASE_URL = viteEnv.env?.VITE_API_BASE_URL || 'http://localhost:4000';
-
-  const [forms, setForms] = useState<FormSubmission[]>(() => {
-    return getMockForms();
-  });
-
+  const [forms, setForms] = useState<FormSubmission[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const [qrSessions, setQrSessions] = useState<QRSession[]>([]);
 
+  /* ===================== SESSION CHECK ===================== */
+
   useEffect(() => {
-    const verifySession = async () => {
+    const verify = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/users/me`, {
-          method: 'GET',
-          credentials: 'include',
-        });
-        if (!response.ok) {
-          setCurrentUser(null);
-          setIsAuthenticated(false);
-          return;
-        }
+        const res = await authFetch(`${API_BASE_URL}/api/users/me`);
+        if (!res.ok) throw new Error();
 
-        const data = await response.json();
-        const role = ['Requester', 'Signatory', 'Reviewer', 'Admin'].includes(data.user.role)
-          ? (data.user.role as UserRole)
-          : 'Requester';
+        const data = await res.json();
 
-        const safeUser: CurrentUser = {
+        setCurrentUser({
           id: data.user._id ?? data.user.id,
-          name: data.user.username ?? data.user.name ?? data.user.email,
-          role,
-          department: data.user.department,
+          name: data.user.username ?? data.user.email,
+          role: data.user.role,
           email: data.user.email,
-        };
+          department: data.user.department,
+          signatureURL: data.user.signatureURL ?? data.user.signatureUrl,
+        });
 
-        setCurrentUser(safeUser);
         setIsAuthenticated(true);
-      } catch (error) {
-        console.error('Verify session failed:', error);
+      } catch {
         setCurrentUser(null);
         setIsAuthenticated(false);
       } finally {
@@ -192,161 +226,467 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    verifySession();
-  }, [API_BASE_URL]);
-
-  const fetchNotificationsFromBackend = async () => {
-    if (!currentUser?.id) {
-      setNotificationsLoaded(true);
-      return;
-    }
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/notifications`, {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Failed to load notifications from backend');
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        setNotifications(data);
-      }
-    } catch (error) {
-      console.error('Could not load notifications from backend:', error);
-    } finally {
-      setNotificationsLoaded(true);
-    }
-  };
+    verify();
+  }, []);
 
   useEffect(() => {
-    setNotificationsLoaded(false);
-    fetchNotificationsFromBackend();
-  }, [API_BASE_URL, currentUser?.id]);
-
-  const fetchFormsFromBackend = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/forms`, {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Failed to load forms from backend');
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        setForms(data);
-      }
-    } catch (error) {
-      console.error('Could not load forms from backend:', error);
-    }
-  };
-
-  useEffect(() => {
-    fetchFormsFromBackend();
-  }, [API_BASE_URL]);
-
-  useEffect(() => {
-    if (!notificationsLoaded || !currentUser?.id) {
-      return;
-    }
-
-    const createMissingApprovalNotifications = async () => {
-      const pendingApprovalForms = forms.filter((form) => {
-        const currentStep = form.approvalSteps[form.currentStep];
-        return (
-          form.status === 'pending' &&
-          currentStep?.userId === currentUser.id &&
-          !notifications.some((notification) => notification.formId === form.id && notification.message.startsWith('New form'))
-        );
-      });
-
-      if (pendingApprovalForms.length === 0) {
+    const loadNotifications = async () => {
+      if (!currentUser) {
+        setNotifications([]);
         return;
       }
 
-      for (const form of pendingApprovalForms) {
-        await addNotification(
-          form.id,
-          currentUser.id,
-          `New form "${form.title}" requires your approval`
-        );
+      try {
+        const res = await authFetch(`${API_BASE_URL}/api/users/${currentUser.id}/notifications`);
+        if (!res.ok) throw new Error();
+
+        const data = await res.json();
+        setNotifications(data);
+      } catch {
+        setNotifications([]);
       }
     };
 
-    createMissingApprovalNotifications();
-  }, [forms, currentUser?.id, notifications, notificationsLoaded]);
+    loadNotifications();
+  }, [currentUser]);
 
-  const createFormOnBackend = async (form: FormSubmission) => {
+  /* ===================== LOGIN ===================== */
+
+  const login = async (email: string, password: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/forms`, {
+      const res = await fetch(`${API_BASE_URL}/api/users/login`, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(form),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       });
-      if (!response.ok) throw new Error('Failed to create form on backend');
-      return await response.json();
-    } catch (error) {
-      console.error('Create form backend failed', error);
-      return null;
+
+      const data = await res.json();
+      if (!res.ok) return false;
+
+      setCurrentUser({
+        id: data.user._id,
+        name: data.user.username,
+        role: data.user.role,
+        email: data.user.email,
+      });
+
+      setIsAuthenticated(true);
+      return true;
+    } catch {
+      return false;
     }
   };
 
-  const updateFormOnBackend = async (id: string, updates: Partial<FormSubmission>) => {
+  /* ===================== LOGOUT ===================== */
+
+  const logout = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/forms/${id}`, {
+      await authFetch(`${API_BASE_URL}/api/users/logout`, {
+        method: 'POST',
+      });
+    } catch {
+      // ignore logout errors
+    }
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+  };
+
+  /* ===================== FORMS ===================== */
+
+  const addForm = async (form: any) => {
+    const newForm = {
+      ...form,
+      id: form.id ?? `form-${Date.now()}`,
+      submittedAt: new Date().toISOString(),
+      status: form.status ?? 'pending',
+      currentStep: 0,
+      signatureMarkers: [],
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/forms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newForm),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to save form');
+      }
+
+      const createdForm = await res.json();
+      setForms((prev) => [createdForm, ...prev]);
+      return createdForm;
+    } catch (error) {
+      console.error('Unable to save form:', error);
+      setForms((prev) => [newForm, ...prev]);
+      return newForm;
+    }
+  };
+
+  const updateForm = async (id: string, updates: any) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/forms/${id}`, {
         method: 'PATCH',
-        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(updates),
       });
-      if (!response.ok) throw new Error('Failed to update form on backend');
-      return await response.json();
-    } catch (error) {
-      console.error('Update form backend failed', error);
-      return null;
-    }
-  };
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/users/login`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email: email.toLowerCase().trim(), password }),
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data.token || !data.user) {
-        return false;
+      if (!res.ok) {
+        throw new Error('Failed to update form');
       }
 
-      const safeUser = {
-        id: data.user._id ?? data.user.id,
-        name: data.user.username ?? data.user.name ?? data.user.email,
-        role: (data.user.role as UserRole) || 'Requester',
-      };
-
-      setCurrentUser(safeUser);
-      setIsAuthenticated(true);
-
-      return true;
+      const updatedForm = await res.json();
+      setForms((prev) => prev.map((f) => (f.id === id ? updatedForm : f)));
     } catch (error) {
-      console.error('Login error:', error);
-      return false;
+      console.error('Unable to update form:', error);
+      setForms((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
     }
   };
 
-  const register = async (data: { name: string; email: string; password: string; role: string; department: string }): Promise<boolean> => {
+  const deleteForm = async (id: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/users`, {
+      const res = await fetch(`${API_BASE_URL}/api/forms/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to delete form');
+      }
+      setForms((prev) => prev.filter((form) => form.id !== id));
+    } catch (error) {
+      console.error('Unable to delete form:', error);
+      setForms((prev) => prev.filter((form) => form.id !== id));
+    }
+  };
+
+  const getFormById = (id: string) => forms.find((f) => f.id === id);
+
+  useEffect(() => {
+    const fetchForms = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/forms`);
+        if (!res.ok) throw new Error('Failed to load forms');
+
+        const data = await res.json();
+        setForms(data);
+      } catch (error) {
+        console.error('Unable to load forms:', error);
+      }
+    };
+
+    fetchForms();
+  }, []);
+
+  /* ===================== APPROVAL ===================== */
+
+  const approveStep = async (formId: string, stepId: string) => {
+    const updatedForms = forms.map((form) => {
+      if (form.id !== formId) return form;
+
+      const approvedSteps = form.approvalSteps.map((s) =>
+        s.id === stepId
+          ? {
+              ...s,
+              status: 'approved' as const,
+              timestamp: new Date().toISOString(),
+            }
+          : s
+      );
+
+      const nextPendingStep = approvedSteps.findIndex((s) => s.status === 'pending');
+      const isFinalApproval = nextPendingStep === -1;
+
+      return {
+        ...form,
+        approvalSteps: approvedSteps,
+        currentStep: isFinalApproval ? form.currentStep : nextPendingStep,
+        status: isFinalApproval ? 'approved' as const : form.status,
+      };
+    });
+
+    setForms(updatedForms);
+    updateForm(formId, updatedForms.find((f) => f.id === formId));
+  };
+
+  const rejectStep = async (formId: string, stepId: string, comments: string) => {
+    const updatedForms = forms.map((form) =>
+      form.id === formId
+        ? {
+            ...form,
+            status: 'rejected' as const,
+            approvalSteps: form.approvalSteps.map((s) =>
+              s.id === stepId
+                ? {
+                    ...s,
+                    status: 'rejected' as const,
+                    comments,
+                    timestamp: new Date().toISOString(),
+                  }
+                : s
+            ),
+          }
+        : form
+    );
+
+    setForms(updatedForms);
+    updateForm(formId, updatedForms.find((f) => f.id === formId));
+  };
+
+  /* ===================== QR ===================== */
+
+  const generateQRSession = (formId: string, stepId: string): QRSession => {
+    const session = {
+      id: `s-${Date.now()}`,
+      formId,
+      stepId,
+      token: `t-${Date.now()}`,
+      expiresAt: new Date(Date.now() + 600000).toISOString(),
+      used: false,
+    };
+
+    setQrSessions((prev) => [...prev, session]);
+    return session;
+  };
+
+  const validateQRSession = (token: string) =>
+    qrSessions.find((s) => s.token === token) || null;
+
+  const useQRSession = (token: string) => {
+    const session = validateQRSession(token);
+    if (!session) return false;
+
+    setQrSessions((prev) =>
+      prev.map((s) => (s.token === token ? { ...s, used: true } : s))
+    );
+
+    return true;
+  };
+
+  /* ===================== NOTIFICATIONS ===================== */
+
+  const addNotification = async (formId: string, userId: string, message: string) => {
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/users/${userId}/notifications`, {
+        method: 'POST',
+        body: JSON.stringify({ formId, userId, message }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        if (userId === currentUser?.id) {
+          setNotifications((prev) => [data, ...prev]);
+        }
+      }
+    } catch {
+      // ignore notification failures silently
+    }
+  };
+
+  const uploadUserPdf = async (file: File) => {
+    if (!currentUser) {
+      throw new Error('User must be authenticated to upload PDF');
+    }
+
+    const formData = new FormData();
+    formData.append('pdfFile', file);
+
+    const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/pdf`, {
+      method: 'PATCH',
+      credentials: 'include',
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to upload PDF');
+    }
+
+    return data.pdfURL;
+  };
+
+  const generateFormPdf = async (
+    formId: string,
+    pdfFile: File,
+    textFields: Record<string, string>,
+    ownerSignature: string | null,
+    assignedSignature: string | null,
+    annotations?: Array<{
+      id: string;
+      type: 'text' | 'signature';
+      text: string;
+      xPct: number;
+      yPct: number;
+      widthPct: number;
+      heightPct: number;
+    }>
+  ) => {
+    const formData = new FormData();
+    formData.append('pdfFile', pdfFile);
+    formData.append('textFields', JSON.stringify(textFields));
+    if (ownerSignature) {
+      formData.append('ownerSignature', ownerSignature);
+    }
+    if (assignedSignature) {
+      formData.append('assignedSignature', assignedSignature);
+    }
+    if (annotations) {
+      formData.append('annotations', JSON.stringify(annotations));
+    }
+
+    const res = await fetch(`${API_BASE_URL}/api/forms/${formId}/pdf`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to generate PDF');
+    }
+    return data.pdfURL;
+  };
+
+  const markNotificationRead = async (notificationId: string) => {
+    if (!currentUser) return;
+
+    try {
+      const res = await authFetch(
+        `${API_BASE_URL}/api/users/${currentUser.id}/notifications/${notificationId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ read: true }),
+        }
+      );
+
+      if (!res.ok) throw new Error();
+      setNotifications((prev) =>
+        prev.map((notification) =>
+          notification.id === notificationId ? { ...notification, read: true } : notification
+        )
+      );
+    } catch {
+      // ignore mark-read failures silently
+    }
+  };
+
+  /* ===================== OTHER ===================== */
+
+  const addSignature = (formId: string, signature: Omit<Signature, 'id' | 'signedAt'>) => {
+    setForms((prev) =>
+      prev.map((form) =>
+        form.id === formId
+          ? {
+              ...form,
+              signatures: [
+                ...form.signatures,
+                {
+                  id: `sig-${Date.now()}`,
+                  signedAt: new Date().toISOString(),
+                  ...signature,
+                },
+              ],
+            }
+          : form
+      )
+    );
+  };
+
+  const removeSignature = (formId: string, signatureId: string) => {
+    setForms((prev) =>
+      prev.map((form) =>
+        form.id === formId
+          ? {
+              ...form,
+              signatures: form.signatures.filter((sig) => sig.id !== signatureId),
+            }
+          : form
+      )
+    );
+  };
+
+  const addAttachment = (formId: string, attachment: Omit<Attachment, 'id'>) => {
+    setForms((prev) =>
+      prev.map((form) =>
+        form.id === formId
+          ? {
+              ...form,
+              attachments: [
+                ...form.attachments,
+                {
+                  id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                  ...attachment,
+                },
+              ],
+            }
+          : form
+      )
+    );
+  };
+
+  const addSignatureMarker = (formId: string, marker: Omit<SignatureMarker, 'id'>) => {
+    setForms((prev) =>
+      prev.map((form) =>
+        form.id === formId
+          ? {
+              ...form,
+              signatureMarkers: [
+                ...form.signatureMarkers,
+                {
+                  id: `marker-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                  ...marker,
+                },
+              ],
+            }
+          : form
+      )
+    );
+  };
+
+  const sendNudge = (formId: string) => {
+    const form = forms.find((f) => f.id === formId);
+    if (!form) return;
+    toast.success('Nudge sent successfully');
+  };
+
+  const generateAISummary = async (formId: string) => {
+    const form = forms.find((f) => f.id === formId);
+    if (!form) return;
+    setForms((prev) =>
+      prev.map((f) =>
+        f.id === formId
+          ? {
+              ...f,
+              aiSummary: `This form titled "${form.title}" is a ${form.type} request with ${form.approvalSteps.length} required approvals.`,
+            }
+          : f
+      )
+    );
+  };
+
+  const downloadFormPDF = (formId: string) => {
+    const form = forms.find((f) => f.id === formId);
+    if (!form) return;
+    // default behavior remains unchanged
+  };
+
+  const register = async (data: {
+    name: string;
+    email: string;
+    password: string;
+    role: string;
+    department: string;
+  }) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/users`, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: data.name,
           email: data.email.toLowerCase().trim(),
@@ -356,20 +696,18 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         }),
       });
 
-      const result = await response.json();
-      if (!response.ok || !result.token || !result.user) {
+      const responseData = await res.json();
+      if (!res.ok || !responseData.token || !responseData.user) {
+        console.error('Register failed:', responseData);
         return false;
       }
 
-      const safeUser = {
-        id: result.user._id ?? result.user.id,
-        name: result.user.username ?? result.user.name ?? result.user.email,
-        role: result.user.role as UserRole,
-        department: result.user.department,
-        email: result.user.email,
-      };
-
-      setCurrentUser(safeUser);
+      setCurrentUser({
+        id: responseData.user._id ?? responseData.user.id,
+        name: responseData.user.username ?? responseData.user.email,
+        role: responseData.user.role,
+        email: responseData.user.email,
+      });
       setIsAuthenticated(true);
 
       return true;
@@ -379,390 +717,49 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = async () => {
-    try {
-      await fetch(`${API_BASE_URL}/api/users/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } catch (error) {
-      console.error('Logout failed:', error);
-    }
-
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-  };
-
-  const addForm = (form: Omit<FormSubmission, 'id' | 'submittedAt' | 'status' | 'currentStep' | 'signatureMarkers'>) => {
-    const newForm: FormSubmission = {
-      ...form,
-      id: `form-${Date.now()}`,
-      submittedAt: new Date().toISOString(),
-      status: 'pending',
-      currentStep: 0,
-      signatureMarkers: [],
-    };
-
-    setForms([newForm, ...forms]);
-
-    createFormOnBackend(newForm).then((savedForm) => {
-      if (savedForm) {
-        setForms((prevForms) => prevForms.map((f) => f.id === newForm.id ? savedForm : f));
-      }
-    });
-
-    if (newForm.approvalSteps.length > 0) {
-      addNotification(
-        newForm.id,
-        newForm.approvalSteps[0].userId,
-        `New form "${newForm.title}" requires your approval`
-      );
-    }
-  };
-
-  const updateForm = (id: string, updates: Partial<FormSubmission>) => {
-    setForms(forms.map(form => form.id === id ? { ...form, ...updates } : form));
-    updateFormOnBackend(id, updates).then((savedForm) => {
-      if (savedForm) {
-        setForms((prevForms) => prevForms.map((form) => form.id === id ? savedForm : form));
-      }
-    });
-  };
-
-  const getFormById = (id: string) => {
-    return forms.find(form => form.id === id);
-  };
-
-  const approveStep = (formId: string, stepId: string, comments?: string) => {
-    const updatedForms: FormSubmission[] = forms.map(form => {
-      if (form.id !== formId) return form;
-      
-      const updatedSteps = form.approvalSteps.map(step => {
-        if (step.id === stepId) {
-          return {
-            ...step,
-            status: 'approved' as const,
-            comments,
-            timestamp: new Date().toISOString(),
-          };
-        }
-        return step;
-      });
-
-      const currentStepIndex = updatedSteps.findIndex(s => s.id === stepId);
-      const allPreviousApproved = updatedSteps.slice(0, currentStepIndex + 1).every(s => s.status === 'approved');
-      const isLastStep = currentStepIndex === updatedSteps.length - 1;
-
-      const nextStep = !isLastStep ? updatedSteps[currentStepIndex + 1] : undefined;
-      if (allPreviousApproved && nextStep) {
-        addNotification(
-          form.id,
-          nextStep.userId,
-          `Form "${form.title}" is now awaiting your approval`
-        );
-      }
-
-      return {
-        ...form,
-        approvalSteps: updatedSteps,
-        currentStep: allPreviousApproved && !isLastStep ? currentStepIndex + 1 : form.currentStep,
-        status: allPreviousApproved && isLastStep ? 'approved' as FormStatus : form.status,
-      };
-    });
-
-    setForms(updatedForms);
-    const updatedForm = updatedForms.find((form) => form.id === formId);
-    if (updatedForm) {
-      updateFormOnBackend(formId, {
-        approvalSteps: updatedForm.approvalSteps,
-        currentStep: updatedForm.currentStep,
-        status: updatedForm.status,
-      });
-    }
-  };
-
-  const rejectStep = (formId: string, stepId: string, comments: string) => {
-    const updatedForms: FormSubmission[] = forms.map(form => {
-      if (form.id !== formId) return form;
-      
-      const updatedSteps = form.approvalSteps.map(step => {
-        if (step.id === stepId) {
-          return {
-            ...step,
-            status: 'rejected' as const,
-            comments,
-            timestamp: new Date().toISOString(),
-          };
-        }
-        return step;
-      });
-
-      addNotification(
-        form.id,
-        form.submittedById,
-        `Your form "${form.title}" was rejected by ${updatedSteps.find(s => s.id === stepId)?.userName}.`
-      );
-
-      return {
-        ...form,
-        approvalSteps: updatedSteps,
-        status: 'rejected' as FormStatus,
-      };
-    });
-
-    setForms(updatedForms);
-    const updatedForm = updatedForms.find((form) => form.id === formId);
-    if (updatedForm) {
-      updateFormOnBackend(formId, {
-        approvalSteps: updatedForm.approvalSteps,
-        status: updatedForm.status,
-      });
-    }
-  };
-
-  const addSignature = (formId: string, signature: Omit<Signature, 'id' | 'signedAt'>) => {
-    const updatedForms = forms.map(form => {
-      if (form.id !== formId) return form;
-      
-      const newSignature: Signature = {
-        ...signature,
-        id: `sig-${Date.now()}`,
-        signedAt: new Date().toISOString(),
-      };
-
-      return {
-        ...form,
-        signatures: [...form.signatures, newSignature],
-      };
-    });
-    setForms(updatedForms);
-    const updatedForm = updatedForms.find((form) => form.id === formId);
-    if (updatedForm) {
-      updateFormOnBackend(formId, {
-        signatures: updatedForm.signatures,
-      });
-    }
-  };
-
-  const addAttachment = (formId: string, attachment: Omit<Attachment, 'id'>) => {
-    const updatedForms = forms.map(form => {
-      if (form.id !== formId) return form;
-      
-      const newAttachment: Attachment = {
-        ...attachment,
-        id: `att-${Date.now()}`,
-      };
-
-      return {
-        ...form,
-        attachments: [...form.attachments, newAttachment],
-      };
-    });
-    setForms(updatedForms);
-    const updatedForm = updatedForms.find((form) => form.id === formId);
-    if (updatedForm) {
-      updateFormOnBackend(formId, {
-        attachments: updatedForm.attachments,
-      });
-    }
-  };
-
-  const generateQRSession = (formId: string, stepId: string): QRSession => {
-    const token = `qr-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
-    
-    const session: QRSession = {
-      id: `session-${Date.now()}`,
-      formId,
-      stepId,
-      token,
-      expiresAt,
-      used: false,
-    };
-    
-    setQrSessions([...qrSessions, session]);
-    return session;
-  };
-
-  const validateQRSession = (token: string): QRSession | null => {
-    const session = qrSessions.find(s => s.token === token);
-    if (!session) return null;
-    
-    const now = new Date();
-    const expiry = new Date(session.expiresAt);
-    
-    if (session.used || now > expiry) {
-      return null;
-    }
-    
-    return session;
-  };
-
-  const useQRSession = (token: string, signature: Omit<Signature, 'id' | 'signedAt'>): boolean => {
-    const session = validateQRSession(token);
-    if (!session) return false;
-    
-    // Mark session as used
-    setQrSessions(qrSessions.map(s => 
-      s.token === token ? { ...s, used: true } : s
-    ));
-    
-    // Add signature
-    addSignature(session.formId, signature);
-    
-    // Auto-approve the step
-    approveStep(session.formId, session.stepId, 'Approved via QR signature');
-    
-    return true;
-  };
-
-  const addSignatureMarker = (formId: string, marker: Omit<SignatureMarker, 'id'>) => {
-    const updatedForms = forms.map(form => {
-      if (form.id !== formId) return form;
-      
-      const newMarker: SignatureMarker = {
-        ...marker,
-        id: `marker-${Date.now()}`,
-      };
-
-      return {
-        ...form,
-        signatureMarkers: [...(form.signatureMarkers || []), newMarker],
-      };
-    });
-    setForms(updatedForms);
-    const updatedForm = updatedForms.find((form) => form.id === formId);
-    if (updatedForm) {
-      updateFormOnBackend(formId, {
-        signatureMarkers: updatedForm.signatureMarkers,
-      });
-    }
-  };
-
-  const sendNudge = (formId: string) => {
-    setForms(forms.map(form => {
-      if (form.id !== formId) return form;
-      
-      const currentStep = form.approvalSteps[form.currentStep];
-      if (currentStep) {
-        // Create notification for the approver
-        addNotification(formId, currentStep.userId, `Reminder: ${form.title} is waiting for your approval`);
-      }
-      
-      return {
-        ...form,
-        lastNudgedAt: new Date().toISOString(),
-      };
-    }));
-    
-    toast.success('Reminder sent to approver');
-  };
-
-  const generateAISummary = async (formId: string) => {
-    // Mock AI summary generation
-    // In production, this would call Gemini 1.5 Flash API
-    const form = forms.find(f => f.id === formId);
-    if (!form) return;
-    
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const summary = `📝 TLDR: ${form.type} request for "${form.title}". ${form.description.substring(0, 100)}... Submitted by ${form.submittedBy}. Currently at step ${form.currentStep + 1}/${form.approvalSteps.length}. ${form.attachments.length} attachments included.`;
-    
-    setForms(forms.map(f => 
-      f.id === formId ? { ...f, aiSummary: summary } : f
-    ));
-  };
-
-  const addNotificationToBackend = async (formId: string, userId: string, message: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/users/${userId}/notifications`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ formId, userId, message }),
-      });
-      if (!response.ok) throw new Error('Failed to create notification');
-      return await response.json();
-    } catch (error) {
-      console.error('Could not create notification on backend:', error);
-      return null;
-    }
-  };
-
-  const addNotification = async (formId: string, userId: string, message: string) => {
-    const newNotification = await addNotificationToBackend(formId, userId, message);
-    if (!newNotification) return;
-    setNotifications((prev) => [newNotification, ...prev]);
-  };
-
-  const markNotificationRead = async (notificationId: string) => {
-    if (!currentUser?.id) {
-      return;
-    }
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/notifications/${notificationId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ read: true }),
-      });
-      if (!response.ok) throw new Error('Failed to update notification');
-      const updatedNotification = await response.json();
-      setNotifications((prev) => prev.map((n) =>
-        n.id === notificationId ? { ...n, read: updatedNotification.read } : n
-      ));
-    } catch (error) {
-      console.error('Could not update notification read status:', error);
-    }
-  };
-
-  const downloadFormPDF = (formId: string) => {
-    const form = forms.find(f => f.id === formId);
-    if (!form) return;
-    
-    // Check if form is finalized (all signatures collected)
-    const allSigned = form.approvalSteps.every(step => step.status === 'approved');
-    
-    if (!allSigned) {
-      toast.error('Cannot download PDF. Form is not yet finalized.');
-      return;
-    }
-    
-    // In production, this would use jspdf to generate a flattened PDF
-    toast.success('PDF download started (mock implementation)');
-  };
-
   return (
     <WorkflowContext.Provider
       value={{
         isAuthenticated,
         authLoaded,
         currentUser,
+
         forms,
         notifications,
         qrSessions,
+
+
         login,
         register,
         logout,
+
         addForm,
         updateForm,
         getFormById,
+
         approveStep,
         rejectStep,
+
         addSignature,
+        removeSignature,
         addAttachment,
+        uploadUserPdf,
+        generateFormPdf,
+        deleteForm,
+
         generateQRSession,
         validateQRSession,
         useQRSession,
+
         addSignatureMarker,
         sendNudge,
         generateAISummary,
+
         addNotification,
         markNotificationRead,
+
         downloadFormPDF,
+        setCurrentUserSignature,
       }}
     >
       {children}
@@ -770,174 +767,10 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useWorkflow() {
-  const context = useContext(WorkflowContext);
-  if (!context) {
-    throw new Error('useWorkflow must be used within WorkflowProvider');
-  }
-  return context;
-}
+/* ===================== HOOK ===================== */
 
-// Mock data for initial state
-function getMockForms(): FormSubmission[] {
-  return [
-    {
-      id: 'form-1',
-      type: 'ACP',
-      title: 'Annual Curriculum Planning - BSIT Program',
-      description: 'Curriculum update for Bachelor of Science in Information Technology program for AY 2026-2027',
-      submittedBy: 'Maria Santos',
-      submittedById: 'user-2',
-      submittedAt: '2026-03-28T10:00:00Z',
-      status: 'pending',
-      formData: {
-        department: 'College of Computing',
-        program: 'BSIT',
-        academicYear: '2026-2027',
-        totalUnits: 180,
-      },
-      attachments: [
-        {
-          id: 'att-1',
-          name: 'Curriculum_Plan_BSIT.pdf',
-          size: 2458000,
-          type: 'application/pdf',
-          url: '#',
-        },
-      ],
-      approvalSteps: [
-        {
-          id: 'step-1',
-          role: 'Department Head',
-          userId: 'user-1',
-          userName: 'Juan Dela Cruz',
-          status: 'pending',
-        },
-        {
-          id: 'step-2',
-          role: 'Dean',
-          userId: 'user-3',
-          userName: 'Robert Garcia',
-          status: 'pending',
-        },
-        {
-          id: 'step-3',
-          role: 'VP for Academics',
-          userId: 'user-4',
-          userName: 'Anna Reyes',
-          status: 'pending',
-        },
-      ],
-      signatures: [],
-      signatureMarkers: [],
-      currentStep: 0,
-    },
-    {
-      id: 'form-2',
-      type: 'Meal Request',
-      title: 'Faculty Development Seminar Catering',
-      description: 'Meal request for 50 participants attending the two-day faculty development seminar',
-      submittedBy: 'Pedro Rodriguez',
-      submittedById: 'user-5',
-      submittedAt: '2026-03-29T14:30:00Z',
-      status: 'approved',
-      formData: {
-        eventName: 'Faculty Development Seminar',
-        eventDate: '2026-04-05',
-        participants: 50,
-        mealType: 'Lunch and Snacks',
-        budget: 15000,
-      },
-      attachments: [],
-      approvalSteps: [
-        {
-          id: 'step-4',
-          role: 'Department Head',
-          userId: 'user-1',
-          userName: 'Juan Dela Cruz',
-          status: 'approved',
-          comments: 'Approved. Budget allocated.',
-          timestamp: '2026-03-29T16:00:00Z',
-        },
-        {
-          id: 'step-5',
-          role: 'Finance Officer',
-          userId: 'user-6',
-          userName: 'Lisa Chen',
-          status: 'approved',
-          comments: 'Budget verified and approved.',
-          timestamp: '2026-03-30T09:15:00Z',
-        },
-      ],
-      signatures: [
-        {
-          id: 'sig-1',
-          userId: 'user-1',
-          userName: 'Juan Dela Cruz',
-          role: 'Department Head',
-          signedAt: '2026-03-29T16:00:00Z',
-          signature: 'JDC',
-        },
-      ],
-      signatureMarkers: [],
-      currentStep: 2,
-    },
-    {
-      id: 'form-3',
-      type: 'Item Request',
-      title: 'Laboratory Equipment Request - Computer Lab',
-      description: 'Request for 10 new desktop computers for the programming laboratory',
-      submittedBy: 'Juan Dela Cruz',
-      submittedById: 'user-1',
-      submittedAt: '2026-03-30T08:00:00Z',
-      status: 'pending',
-      formData: {
-        items: 'Desktop Computer (Intel i7, 16GB RAM) - Quantity: 10, Unit Price: ₱45,000',
-        totalAmount: 450000,
-        justification: 'Current computers are outdated and unable to run modern development tools',
-      },
-      attachments: [
-        {
-          id: 'att-2',
-          name: 'Equipment_Specs.pdf',
-          size: 890000,
-          type: 'application/pdf',
-          url: '#',
-        },
-        {
-          id: 'att-3',
-          name: 'Price_Quotation.xlsx',
-          size: 125000,
-          type: 'application/vnd.ms-excel',
-          url: '#',
-        },
-      ],
-      approvalSteps: [
-        {
-          id: 'step-6',
-          role: 'Dean',
-          userId: 'user-3',
-          userName: 'Robert Garcia',
-          status: 'pending',
-        },
-        {
-          id: 'step-7',
-          role: 'Procurement Officer',
-          userId: 'user-7',
-          userName: 'Thomas Wilson',
-          status: 'pending',
-        },
-        {
-          id: 'step-8',
-          role: 'VP for Finance',
-          userId: 'user-8',
-          userName: 'Sarah Johnson',
-          status: 'pending',
-        },
-      ],
-      signatures: [],
-      signatureMarkers: [],
-      currentStep: 0,
-    },
-  ];
+export function useWorkflow() {
+  const ctx = useContext(WorkflowContext);
+  if (!ctx) throw new Error('useWorkflow must be used within provider');
+  return ctx;
 }

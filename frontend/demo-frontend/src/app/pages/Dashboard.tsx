@@ -5,9 +5,10 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { FileText, CheckCircle, Clock, AlertCircle, TrendingUp, Plus, Bell } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 export function Dashboard() {
-  const { forms, currentUser, notifications, markNotificationRead } = useWorkflow();
+  const { forms, currentUser, notifications, markNotificationRead, deleteForm } = useWorkflow();
 
   if (!currentUser) {
     return null;
@@ -52,7 +53,25 @@ export function Dashboard() {
     },
   ];
 
+  const handleDeleteDraft = async (id: string) => {
+    const confirmed = window.confirm('Delete this draft? This action cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      await deleteForm(id);
+      toast.success('Draft deleted successfully');
+    } catch (error) {
+      console.error('Delete draft failed:', error);
+      toast.error('Unable to delete draft');
+    }
+  };
+
   const recentForms = [...forms]
+    .filter((form) =>
+      currentUser.role === 'Admin' ||
+      form.submittedById === currentUser.id ||
+      form.approvalSteps.some((step) => step.userId === currentUser.id)
+    )
     .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
     .slice(0, 5);
 
@@ -71,6 +90,14 @@ export function Dashboard() {
             <Button size="lg" className="gap-2">
               <Plus className="w-5 h-5" />
               Submit New Form
+            </Button>
+          </Link>
+        </div>
+        <div className="mb-8">
+          <Link to="/DigitalSignatureProfile">
+            <Button size="lg" className="gap-2">
+              <Plus className="w-5 h-5" />
+              Modify Signature
             </Button>
           </Link>
         </div>
@@ -156,34 +183,47 @@ export function Dashboard() {
             <CardContent>
               <div className="space-y-4">
                 {recentForms.map((form) => (
-                  <Link
+                  <div
                     key={form.id}
-                    to={`/form/${form.id}`}
-                    className="block p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50/50 transition-colors"
+                    className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50/50 transition-colors"
                   >
-                    <div className="flex items-start justify-between mb-2">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-2">
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900 mb-1">{form.title}</p>
+                        <Link to={`/form/${form.id}`} className="font-medium text-gray-900 hover:text-blue-700">
+                          {form.title}
+                        </Link>
                         <p className="text-sm text-gray-600">{form.submittedBy}</p>
                       </div>
-                      <Badge
-                        variant={
-                          form.status === 'approved'
-                            ? 'default'
-                            : form.status === 'rejected'
-                            ? 'destructive'
-                            : 'secondary'
-                        }
-                      >
-                        {form.status}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            form.status === 'approved'
+                              ? 'default'
+                              : form.status === 'rejected'
+                              ? 'destructive'
+                              : 'secondary'
+                          }
+                        >
+                          {form.status}
+                        </Badge>
+                        {form.status === 'draft' && form.submittedById === currentUser.id && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDeleteDraft(form.id)}
+                            className="whitespace-nowrap"
+                          >
+                            Delete Draft
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-gray-500">
                       <span>{form.type}</span>
                       <span>•</span>
                       <span>{format(new Date(form.submittedAt), 'MMM d, yyyy')}</span>
                     </div>
-                  </Link>
+                  </div>
                 ))}
               </div>
             </CardContent>

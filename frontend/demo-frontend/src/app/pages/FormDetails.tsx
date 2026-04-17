@@ -7,6 +7,7 @@ import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
 import { Separator } from '../components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
+import { PdfEditor, PdfAnnotation } from '../components/PdfEditor';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 // import QRCode from 'qrcode';
@@ -20,7 +21,7 @@ import {
   Download,
   MessageSquare,
   PenTool,
-  Upload,
+
   ArrowLeft,
   QrCode,
   Bell,
@@ -37,8 +38,11 @@ export function FormDetails() {
     approveStep, 
     rejectStep, 
     addSignature, 
-    addAttachment, 
+    removeSignature,
     currentUser,
+    updateForm,
+    generateFormPdf,
+    deleteForm,
     // generateQRSession,
     sendNudge,
     generateAISummary,
@@ -49,11 +53,16 @@ export function FormDetails() {
   }
   const [comments, setComments] = useState('');
   const [isSignatureDialogOpen, setIsSignatureDialogOpen] = useState(false);
-  // const [isQRDialogOpen, setIsQRDialogOpen] = useState(false);
-  // const [qrCodeDataURL, setQrCodeDataURL] = useState('');
-  // const [qrSessionLink, setQrSessionLink] = useState('');
+  const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
+  const [selectedPdfUrl, setSelectedPdfUrl] = useState<string | null>(null);
+  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [signature, setSignature] = useState('');
+  const [isPdfEditorOpen, setIsPdfEditorOpen] = useState(false);
+  const [pdfEditorFile, setPdfEditorFile] = useState<File | null>(null);
+  const [pdfEditorAnnotations, setPdfEditorAnnotations] = useState<PdfAnnotation[]>([]);
+  const [editingAttachmentId, setEditingAttachmentId] = useState<string | null>(null);
+  const [isSavingPdfEditor, setIsSavingPdfEditor] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
@@ -73,6 +82,22 @@ export function FormDetails() {
   }
 
   const currentStep = form.approvalSteps[form.currentStep];
+  const safeFormData = form.formData ?? {};
+  const isValidUrl = (value: string | undefined | null) => {
+    if (!value) return false;
+    try {
+      const parsed = new URL(value, window.location.href);
+      return ['http:', 'https:', 'blob:', 'data:'].includes(parsed.protocol);
+    } catch {
+      return false;
+    }
+  };
+
+  const pdfAttachment = form.attachments.find(
+    (att) =>
+      (att.type === 'application/pdf' || att.name?.toLowerCase().endsWith('.pdf')) &&
+      isValidUrl(att.url)
+  );
   const canApprove = currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
   const canAddSignature = form.approvalSteps.some(
     step => step.userId === currentUser.id && step.status !== 'pending'
@@ -101,21 +126,6 @@ export function FormDetails() {
       rejectStep(form.id, currentStep.id, comments);
       toast.error('Form rejected');
       setComments('');
-    }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files) {
-      Array.from(files).forEach(file => {
-        addAttachment(form.id, {
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          url: '#',
-        });
-      });
-      toast.success(`${files.length} file(s) added`);
     }
   };
 
@@ -166,23 +176,171 @@ export function FormDetails() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   };
 
-  const saveSignature = () => {
+  const fetchPdfFileFromUrl = async (url: string, fileName: string) => {
+    if (!isValidUrl(url)) {
+      throw new Error('Invalid PDF URL');
+    }
+
+    if (url.startsWith('data:')) {
+      const match = url.match(/^data:(.+);base64,(.+)$/);
+      if (!match) {
+        throw new Error('Invalid data URL for PDF');
+      }
+      const mimeType = match[1];
+      const data = match[2];
+      const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+      return new File([bytes], fileName, { type: mimeType });
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Unable to fetch PDF attachment');
+    }
+    const blob = await response.blob();
+    return new File([blob], fileName, { type: 'application/pdf' });
+  };
+
+  const openPdfEditorForAttachment = async (att: { id?: string; name: string; url?: string }) => {
+    if (!att.url || !isValidUrl(att.url)) {
+      toast.error('Cannot edit PDF: attachment has no valid URL');
+      return;
+    }
+
+    try {
+      const file = await fetchPdfFileFromUrl(att.url, att.name);
+      setPdfEditorFile(file);
+      setPdfEditorAnnotations([]);
+      setEditingAttachmentId(att.id ?? null);
+      setIsPdfEditorOpen(true);
+    } catch (error: any) {
+      console.error('Unable to open PDF editor:', error);
+      toast.error(error?.message || 'Failed to load PDF for editing');
+    }
+  };
+
+  const savePdfEditorAnnotations = async () => {
+    if (!pdfEditorFile || !editingAttachmentId) {
+      toast.error('No PDF file loaded for placement');
+      return;
+    }
+
+    const ownerSignature = form.signatures.find((sig) => sig.role === 'Requester')?.signature ?? null;
+    const userSignature = form.signatures.find((sig) => sig.userId === currentUser.id)?.signature ?? null;
+    const hasSignatureAnnotation = pdfEditorAnnotations.some(
+      (annotation) => annotation.type === 'signature' && annotation.signatureData,
+    );
+
+    if (!hasSignatureAnnotation && !userSignature) {
+      toast.error('Please save your signature first or place a signature annotation on the PDF');
+      return;
+    }
+
+    setIsSavingPdfEditor(true);
+    try {
+      const generatedPdfUrl = await generateFormPdf(
+        form.id,
+        pdfEditorFile,
+        {},
+        ownerSignature,
+        userSignature ?? null,
+        pdfEditorAnnotations,
+      );
+
+      await updateForm(form.id, {
+        generatedPdfURL: generatedPdfUrl,
+        attachments: form.attachments.map((att) =>
+          att.id === editingAttachmentId ? { ...att, url: generatedPdfUrl } : att
+        ),
+      });
+
+      toast.success('Signature placement saved to PDF');
+      setIsPdfEditorOpen(false);
+      setEditingAttachmentId(null);
+      setPdfEditorFile(null);
+      setPdfEditorAnnotations([]);
+    } catch (error: any) {
+      console.error('Saving PDF placement failed:', error);
+      toast.error(error?.message || 'Failed to save signature placement on PDF');
+    } finally {
+      setIsSavingPdfEditor(false);
+    }
+  };
+
+  const regeneratePdfWithSignatures = async (newSignature: { userId: string; userName: string; role: string; signature: string }) => {
+    const pdfUrl = pdfAttachment?.url || form.generatedPdfURL;
+    if (!pdfUrl || !isValidUrl(pdfUrl)) {
+      console.warn('Cannot regenerate signed PDF: missing valid PDF URL');
+      return;
+    }
+
+    const ownerSignature = form.signatures.find((sig) => sig.role === 'Requester')?.signature ?? null;
+    const assignedSignature = newSignature.signature;
+
+    try {
+      const pdfFile = await fetchPdfFileFromUrl(pdfUrl, pdfAttachment?.name ?? 'document.pdf');
+      const generatedPdfUrl = await generateFormPdf(form.id, pdfFile, {}, ownerSignature, assignedSignature, []);
+
+      await updateForm(form.id, {
+        generatedPdfURL: generatedPdfUrl,
+        attachments: form.attachments.map((att) =>
+          att.id && pdfAttachment?.id && att.id === pdfAttachment.id ? { ...att, url: generatedPdfUrl } : att
+        ),
+      });
+
+      toast.success('Signed PDF updated successfully');
+    } catch (error: any) {
+      console.warn('Could not regenerate signed PDF:', error);
+    }
+  };
+
+  const isCanvasBlank = (canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return true;
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let i = 3; i < imageData.length; i += 4) {
+      if (imageData[i] !== 0) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const saveSignature = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
+
+    if (isCanvasBlank(canvas)) {
+      toast.error('Please draw a signature before saving');
+      return;
+    }
+
     const signatureData = canvas.toDataURL();
-    addSignature(form.id, {
+    const newSignature = {
+      id: `sig-${Date.now()}`,
       userId: currentUser.id,
       userName: currentUser.name,
       role: currentUser.role,
+      signedAt: new Date().toISOString(),
       signature: signatureData,
-    });
+    };
 
-    if (isCurrentSigner && currentStep) {
-      approveStep(form.id, currentStep.id, 'Signed and approved');
-      toast.success('Signature added and step approved');
-    } else {
-      toast.success('Signature added successfully');
+    try {
+      await updateForm(form.id, {
+        signatures: [...form.signatures, newSignature],
+      });
+
+      if (isCurrentSigner && currentStep) {
+        await approveStep(form.id, currentStep.id, 'Signed and approved');
+        toast.success('Signature added and step approved');
+      } else {
+        toast.success('Signature added successfully');
+      }
+
+      await regeneratePdfWithSignatures(newSignature);
+    } catch (error: any) {
+      console.error('Saving signature failed:', error);
+      toast.error(error?.message || 'Unable to save signature');
+      return;
     }
 
     setIsSignatureDialogOpen(false);
@@ -216,73 +374,101 @@ export function FormDetails() {
     toast.success('Nudge sent successfully');
   };
 
+  const handleDeleteDraft = async () => {
+    if (form.status !== 'draft' || form.submittedById !== currentUser.id) return;
+
+    const confirmed = window.confirm('Delete this draft? This action cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      await deleteForm(form.id);
+      toast.success('Draft deleted successfully');
+      navigate('/submissions');
+    } catch (error) {
+      console.error('Delete draft failed:', error);
+      toast.error('Unable to delete draft');
+    }
+  };
+
+  const previewPdfAttachment = async (pdfUrl: string) => {
+    setIsLoadingPdf(true);
+    try {
+      const res = await fetch(pdfUrl);
+      if (!res.ok) {
+        throw new Error('Failed to load PDF');
+      }
+      let blob = await res.blob();
+      if (blob.type !== 'application/pdf') {
+        blob = new Blob([blob], { type: 'application/pdf' });
+      }
+      const blobUrl = URL.createObjectURL(blob);
+      if (selectedPdfUrl) {
+        URL.revokeObjectURL(selectedPdfUrl);
+      }
+      setSelectedPdfUrl(blobUrl);
+      setIsPdfViewerOpen(true);
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to load PDF preview');
+    } finally {
+      setIsLoadingPdf(false);
+    }
+  };
+
   const handleGenerateAISummary = async () => {
     setIsGeneratingAI(true);
     await generateAISummary(form.id);
     setIsGeneratingAI(false);
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     const formData = getFormById(form.id);
     if (!formData) return;
-    
-    // Check if form is finalized
-    const allSigned = formData.approvalSteps.every(step => step.status === 'approved');
-    
+
+    const allSigned = formData.approvalSteps.every((step) => step.status === 'approved');
+
     if (!allSigned) {
       toast.error('Cannot download PDF. Form is not yet finalized.');
       return;
     }
-    
-    // Create a simple text-based PDF content
-    const pdfContent = `
-SIGNNU - NU LAGUNA
-Form Approval Document
 
-Form Type: ${formData.type}
-Title: ${formData.title}
-Description: ${formData.description}
+    const pdfAttachment = formData.attachments.find(
+      (att) => att.type === 'application/pdf' || att.name?.toLowerCase().endsWith('.pdf')
+    );
 
-Submitted By: ${formData.submittedBy}
-Submitted At: ${format(new Date(formData.submittedAt), 'PPpp')}
-Status: ${formData.status.toUpperCase()}
+    if (!pdfAttachment?.url) {
+      toast.error('No signed PDF attachment is available for download.');
+      return;
+    }
 
-FORM DATA:
-${Object.entries(formData.formData).map(([key, value]) => `${key}: ${value}`).join('\n')}
+    try {
+      const response = await fetch(pdfAttachment.url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch PDF');
+      }
+      let blob = await response.blob();
+      if (blob.type !== 'application/pdf') {
+        blob = new Blob([blob], { type: 'application/pdf' });
+      }
 
-APPROVAL CHAIN:
-${formData.approvalSteps.map((step, index) => 
-  `${index + 1}. ${step.role} - ${step.userName}
-     Status: ${step.status.toUpperCase()}
-     ${step.comments ? `Comments: ${step.comments}` : ''}
-     ${step.timestamp ? `Date: ${format(new Date(step.timestamp), 'PPpp')}` : ''}
-  `).join('\n')}
+      const blobUrl = URL.createObjectURL(blob);
+      const downloadName = pdfAttachment.name?.toLowerCase().endsWith('.pdf')
+        ? pdfAttachment.name
+        : `${formData.type}_${formData.id}.pdf`;
 
-SIGNATURES:
-${formData.signatures.map((sig, index) => 
-  `${index + 1}. ${sig.userName} (${sig.role})
-     Signed: ${format(new Date(sig.signedAt), 'PPpp')}`).join('\n')}
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = downloadName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
 
-ATTACHMENTS:
-${formData.attachments.map((att, index) => `${index + 1}. ${att.name} (${(att.size / 1024).toFixed(2)} KB)`).join('\n')}
-
----
-Document generated on ${format(new Date(), 'PPpp')}
-This is an official document from SignNU - NU Laguna
-    `;
-    
-    // Create a blob and download
-    const blob = new Blob([pdfContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${formData.type}_${formData.id}_${Date.now()}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
-    toast.success('Document downloaded successfully!');
+      toast.success('PDF downloaded successfully!');
+    } catch (error: any) {
+      console.error('Download failed:', error);
+      toast.error('Unable to download PDF');
+    }
   };
 
   return (
@@ -356,14 +542,14 @@ This is an official document from SignNU - NU Laguna
             )}
 
             {/* Form Data */}
-            {Object.keys(form.formData).length > 0 && (
+            {Object.keys(safeFormData).length > 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle>Form Details</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {Object.entries(form.formData).map(([key, value]) => (
+                    {Object.entries(safeFormData).map(([key, value]) => (
                       <div key={key} className="flex justify-between py-2 border-b last:border-0">
                         <span className="text-sm font-medium text-gray-700 capitalize">
                           {key.replace(/([A-Z])/g, ' $1').trim()}
@@ -383,55 +569,134 @@ This is an official document from SignNU - NU Laguna
             {/* Attachments */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Attachments</CardTitle>
-                  <div>
-                    <input
-                      type="file"
-                      multiple
-                      onChange={handleFileUpload}
-                      className="hidden"
-                      id="file-upload"
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => document.getElementById('file-upload')?.click()}
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Add Files
-                    </Button>
-                  </div>
-                </div>
+                <CardTitle>Attachments</CardTitle>
+                <CardDescription>
+                  View the latest uploaded or generated PDF attachments for this form.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {form.attachments.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-8">No attachments</p>
+                  <p className="text-sm text-gray-500">No attachments available.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {form.attachments.map((attachment) => (
-                      <div
-                        key={attachment.id}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                      >
-                        <div className="flex items-center gap-3">
-                          <FileText className="w-5 h-5 text-blue-600" />
+                  <div className="space-y-3">
+                    {form.attachments.map((att) => (
+                      <div key={att.id} className="rounded-lg border border-gray-200 p-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div>
-                            <p className="text-sm font-medium text-gray-900">{attachment.name}</p>
-                            <p className="text-xs text-gray-500">
-                              {(attachment.size / 1024 / 1024).toFixed(2)} MB
-                            </p>
+                            <p className="font-medium text-gray-900">{att.name}</p>
+                            <p className="text-sm text-gray-600">{(att.size / 1024).toFixed(2)} KB</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {att.url ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => previewPdfAttachment(att.url)}
+                                  disabled={isLoadingPdf}
+                                >
+                                  {isLoadingPdf ? 'Loading...' : 'View PDF'}
+                                </Button>
+                                {canOpenSignatureDialog && (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => openPdfEditorForAttachment(att)}
+                                  >
+                                    Place Signature
+                                  </Button>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-sm text-gray-500">No file URL</span>
+                            )}
                           </div>
                         </div>
-                        <Button variant="ghost" size="sm">
-                          <Download className="w-4 h-4" />
-                        </Button>
                       </div>
                     ))}
                   </div>
                 )}
               </CardContent>
             </Card>
+
+            <Dialog
+              open={isPdfViewerOpen}
+              onOpenChange={(open) => {
+                setIsPdfViewerOpen(open);
+                if (!open && selectedPdfUrl) {
+                  URL.revokeObjectURL(selectedPdfUrl);
+                  setSelectedPdfUrl(null);
+                }
+              }}
+            >
+              <DialogContent className="sm:max-w-4xl max-w-full h-[calc(100vh-5rem)] overflow-auto p-0">
+                <div className="flex h-full flex-col bg-white">
+                  <DialogHeader className="px-6 py-4 border-b">
+                    <DialogTitle>Preview PDF</DialogTitle>
+                    <DialogDescription>
+                      Review the document in read-only mode.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex-1 overflow-auto">
+                    {selectedPdfUrl ? (
+                      <iframe
+                        src={selectedPdfUrl}
+                        title="PDF Preview"
+                        className="w-full h-full border-0"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center p-6 text-sm text-gray-500">
+                        No PDF selected for preview.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={isPdfEditorOpen} onOpenChange={(open) => {
+              setIsPdfEditorOpen(open);
+              if (!open) {
+                setPdfEditorFile(null);
+                setEditingAttachmentId(null);
+                setPdfEditorAnnotations([]);
+              }
+            }}>
+              <DialogContent className="sm:max-w-4xl max-w-full h-[calc(100vh-5rem)] overflow-auto p-0">
+                <div className="flex h-full flex-col bg-white">
+                  <DialogHeader className="px-6 py-4 border-b">
+                    <DialogTitle>Place your signature</DialogTitle>
+                    <DialogDescription>
+                      Drag your signature or text box to the desired location on the PDF.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex-1 overflow-auto p-4">
+                    {pdfEditorFile ? (
+                      <PdfEditor
+                        file={pdfEditorFile}
+                        annotations={pdfEditorAnnotations}
+                        onChange={setPdfEditorAnnotations}
+                        onClose={() => setIsPdfEditorOpen(false)}
+                        isSaving={isSavingPdfEditor}
+                        currentUserId={currentUser.id}
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center p-6 text-sm text-gray-500">
+                        Loading PDF editor...
+                      </div>
+                    )}
+                  </div>
+                  <div className="border-t p-4 flex gap-2 justify-end">
+                    <Button variant="outline" onClick={() => setIsPdfEditorOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={savePdfEditorAnnotations} disabled={isSavingPdfEditor}>
+                      {isSavingPdfEditor ? 'Saving…' : 'Save placement'}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
 
             {/* Approval Actions */}
             {canApprove && (
@@ -515,26 +780,37 @@ This is an official document from SignNU - NU Laguna
                 </div>
               </CardHeader>
               <CardContent>
-                {form.signatures.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-8">No signatures yet</p>
+                {form.signatures.filter((sig) => sig.userId === currentUser.id).length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-8">No personal signatures yet</p>
                 ) : (
                   <div className="space-y-4">
-                    {form.signatures.map((sig) => (
-                      <div key={sig.id} className="p-4 bg-gray-50 rounded-lg">
-                        <div className="flex items-start justify-between mb-3">
-                          <div>
-                            <p className="font-medium text-gray-900">{sig.userName}</p>
-                            <p className="text-sm text-gray-600">{sig.role}</p>
+                    {form.signatures
+                      .filter((sig) => sig.userId === currentUser.id)
+                      .map((sig) => (
+                        <div key={sig.id} className="p-4 bg-gray-50 rounded-lg">
+                          <div className="flex items-start justify-between mb-3 gap-4">
+                            <div>
+                              <p className="font-medium text-gray-900">{sig.userName}</p>
+                              <p className="text-sm text-gray-600">{sig.role}</p>
+                            </div>
+                            <p className="text-xs text-gray-500">
+                              {format(new Date(sig.signedAt), 'MMM d, yyyy h:mm a')}
+                            </p>
                           </div>
-                          <p className="text-xs text-gray-500">
-                            {format(new Date(sig.signedAt), 'MMM d, yyyy h:mm a')}
-                          </p>
+                          <div className="border border-gray-200 rounded bg-white p-2 mb-4">
+                            <img src={sig.signature} alt={`${sig.userName}'s signature`} className="h-16" />
+                          </div>
+                          <div className="flex justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => removeSignature(form.id, sig.id)}
+                            >
+                              Remove signature
+                            </Button>
+                          </div>
                         </div>
-                        <div className="border border-gray-200 rounded bg-white p-2">
-                          <img src={sig.signature} alt={`${sig.userName}'s signature`} className="h-16" />
-                        </div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 )}
               </CardContent>
@@ -626,11 +902,6 @@ This is an official document from SignNU - NU Laguna
                 </div>
                 <Separator />
                 <div>
-                  <p className="text-gray-600 mb-1">Attachments</p>
-                  <p className="font-medium">{form.attachments.length} files</p>
-                </div>
-                <Separator />
-                <div>
                   <p className="text-gray-600 mb-1">Signatures</p>
                   <p className="font-medium">{form.signatures.length} collected</p>
                 </div>
@@ -661,6 +932,12 @@ This is an official document from SignNU - NU Laguna
                   <Download className="w-4 h-4 mr-2" />
                   Download PDF
                 </Button>
+                {form.status === 'draft' && form.submittedById === currentUser.id && (
+                  <Button onClick={handleDeleteDraft} variant="destructive" size="sm">
+                    <XCircle className="w-4 h-4 mr-2" />
+                    Delete Draft
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </div>

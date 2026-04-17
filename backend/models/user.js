@@ -26,9 +26,13 @@ const userSchema = new Schema({
     }
   },
   password: { type: String, required: true },
+  passwordResetToken: { type: String },
+  passwordResetTokenExpires: { type: Date },
   role: { type: String, default: 'user' },
   department: { type: String },
-  notifications: [NotificationSchema]
+  notifications: [NotificationSchema],
+  signatureURL: { type: String },
+  pdfURL: { type: String }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 module.exports = mongoose.model('User', userSchema);

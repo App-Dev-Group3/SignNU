@@ -54,6 +54,7 @@ const FormSchema = new Schema({
   approvalSteps: { type: [ApprovalStepSchema], default: [] },
   signatures: { type: [SignatureSchema], default: [] },
   signatureMarkers: { type: [SignatureMarkerSchema], default: [] },
+  generatedPdfURL: { type: String },
   currentStep: { type: Number, default: 0 },
   lastNudgedAt: { type: String },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });

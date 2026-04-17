@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { useWorkflow, FormType } from '../context/WorkflowContext';
+import { useWorkflow, FormType, FormStatus } from '../context/WorkflowContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Label } from '../components/ui/label';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import { FileText, Upload, X } from 'lucide-react';
+import { PdfEditor, PdfAnnotation } from '../components/PdfEditor';
 
 const formTypes: FormType[] = ['ACP', 'Meal Request', 'RI', 'RFP', 'Item Request'];
 
@@ -41,39 +43,50 @@ const approvalChains: Record<FormType, Array<{ role: string; userId: string; use
 
 export function NewForm() {
   const navigate = useNavigate();
-  const { addForm, currentUser } = useWorkflow();
+  const { addForm, updateForm, deleteForm, generateFormPdf, currentUser } = useWorkflow();
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
   if (!currentUser) {
     return null;
   }
 
+  const formIdRef = useRef(`form-${Date.now()}`);
   const [formType, setFormType] = useState<FormType | ''>('');
   const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [formData, setFormData] = useState<Record<string, any>>({});
-  const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string }>>([]);
-  const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
-  const [approvalSteps, setApprovalSteps] = useState<Array<{ role: string; userId: string; userName: string }>>([]);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files) {
-      const newAttachments = Array.from(files).map(file => ({
-        name: file.name,
-        size: file.size,
-        type: file.type,
-      }));
-      setAttachments([...attachments, ...newAttachments]);
+  const isValidUrl = (value: string | undefined | null) => {
+    if (!value) return false;
+    try {
+      const parsed = new URL(value, window.location.href);
+      return ['http:', 'https:', 'blob:', 'data:'].includes(parsed.protocol);
+    } catch {
+      return false;
     }
   };
+  const [description, setDescription] = useState('');
+  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [attachments, setAttachments] = useState<Array<{ id?: string; name: string; size: number; type: string; url?: string }>>([]);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [approvalSteps, setApprovalSteps] = useState<Array<{ role: string; userId: string; userName: string }>>([]);
+  const [userLoadError, setUserLoadError] = useState<string | null>(null);
+  const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
+  const [pdfAnnotations, setPdfAnnotations] = useState<PdfAnnotation[]>([]);
+  const [showPdfEditor, setShowPdfEditor] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [generatedPdfUrl, setGeneratedPdfUrl] = useState('');
+  const [draftCreated, setDraftCreated] = useState(false);
 
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/users`);
+        const response = await fetch(`${API_BASE_URL}/api/users`, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
         if (!response.ok) {
-          throw new Error('Failed to load users');
+          const errorText = await response.text();
+          throw new Error(`Failed to load users: ${response.status} ${errorText}`);
         }
         const fetchedUsers = await response.json();
         setAvailableUsers(fetchedUsers.map((user: any) => ({
@@ -81,21 +94,122 @@ export function NewForm() {
           name: user.username || user.name || user.email,
           role: user.role,
         })));
-      } catch (error) {
+        setUserLoadError(null);
+      } catch (error: any) {
         console.error('Error loading approvers:', error);
+        setUserLoadError(error.message || 'Failed to load approvers');
       }
     };
 
     fetchUsers();
   }, [API_BASE_URL]);
 
-  const removeAttachment = (index: number) => {
-    setAttachments(attachments.filter((_, i) => i !== index));
+  const handleSavePdf = async () => {
+    if (!pdfSourceFile) {
+      toast.error('Please upload a PDF file first');
+      return;
+    }
+
+    if (!draftCreated) {
+      const formId = formIdRef.current;
+      const requesterSignatureEntry = currentUser.signatureURL
+        ? [
+            {
+              id: `sig-${Date.now()}`,
+              userId: currentUser.id,
+              userName: currentUser.name,
+              role: currentUser.role,
+              signedAt: new Date().toISOString(),
+              signature: currentUser.signatureURL,
+            },
+          ]
+        : [];
+
+      const draftForm = await addForm({
+        id: formId,
+        type: formType || 'ACP',
+        title,
+        description,
+        submittedBy: currentUser.name,
+        submittedById: currentUser.id,
+        formData,
+        attachments: [],
+        approvalSteps: approvalSteps.map((step, index) => ({
+          id: `step-${Date.now()}-${index}`,
+          ...step,
+          status: 'pending' as const,
+        })),
+        signatures: requesterSignatureEntry,
+        status: 'draft' as FormStatus,
+      });
+
+      if (!draftForm) {
+        toast.error('Unable to create draft form');
+        return;
+      }
+      setDraftCreated(true);
+    }
+
+    const textFields = {};
+
+    setIsGeneratingPdf(true);
+    try {
+      const pdfUrl = await generateFormPdf(
+        formIdRef.current,
+        pdfSourceFile,
+        textFields,
+        currentUser.signatureURL ?? null,
+        null,
+        pdfAnnotations
+      );
+      if (!pdfUrl || !isValidUrl(pdfUrl)) {
+        throw new Error('Received invalid PDF URL from server');
+      }
+      setGeneratedPdfUrl(pdfUrl);
+      setAttachments((prev) => [
+        ...prev,
+        { name: pdfSourceFile.name, size: pdfSourceFile.size, type: pdfSourceFile.type, url: pdfUrl },
+      ]);
+      toast.success('PDF saved successfully');
+    } catch (error: any) {
+      console.error('PDF save failed:', error);
+      toast.error(error?.message || 'Failed to save PDF');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleDeleteDraft = async () => {
+    if (!draftCreated) return;
+
+    const confirmed = window.confirm(
+      'Delete this draft? This action cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    try {
+      await deleteForm(formIdRef.current);
+      setDraftCreated(false);
+      setGeneratedPdfUrl('');
+      setPdfSourceFile(null);
+      setPdfAnnotations([]);
+      setAttachments([]);
+      setFormType('');
+      setTitle('');
+      setDescription('');
+      setFormData({});
+      setApprovalSteps([]);
+      toast.success('Draft deleted successfully');
+      navigate('/submissions');
+    } catch (error) {
+      console.error('Delete draft failed:', error);
+      toast.error('Unable to delete draft');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formType || !title || !description) {
       toast.error('Please fill in all required fields');
       return;
@@ -106,7 +220,22 @@ export function NewForm() {
       return;
     }
 
-    addForm({
+    const formId = formIdRef.current;
+    const requesterSignatureEntry = currentUser.signatureURL
+      ? [
+          {
+            id: `sig-${Date.now()}`,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            role: currentUser.role,
+            signedAt: new Date().toISOString(),
+            signature: currentUser.signatureURL,
+          },
+        ]
+      : [];
+
+    const baseForm = {
+      id: formId,
       type: formType,
       title,
       description,
@@ -116,23 +245,54 @@ export function NewForm() {
       attachments: attachments.map((att, index) => ({
         ...att,
         id: `att-${Date.now()}-${index}`,
-        url: '#',
+        url: att.url ?? '#',
       })),
       approvalSteps: approvalSteps.map((step, index) => ({
         id: `step-${Date.now()}-${index}`,
         ...step,
         status: 'pending' as const,
       })),
-      signatures: [],
-    });
+      signatures: requesterSignatureEntry,
+      status: pdfSourceFile ? ('draft' as FormStatus) : ('pending' as FormStatus),
+    };
 
-    toast.success('Form submitted successfully!');
-    navigate('/submissions');
+    try {
+      if (pdfSourceFile && !generatedPdfUrl) {
+        toast.error('Please save the edited PDF before submitting');
+        return;
+      }
+
+      if (draftCreated) {
+        await updateForm(formId, {
+          status: 'pending',
+          attachments: attachments.map((att, index) => ({
+            ...att,
+            id: att.id ?? `att-${Date.now()}-${index}`,
+            url: att.url ?? '#',
+          })),
+        });
+      } else {
+        const createdForm = await addForm(baseForm);
+        if (!createdForm) {
+          throw new Error('Failed to create form');
+        }
+      }
+
+      toast.success('Form submitted successfully!');
+      navigate('/submissions');
+    } catch (error: any) {
+      console.error('Form submission failed:', error);
+      toast.error(error?.message || 'Unable to submit form');
+    }
   };
 
   const getApproverOptions = (role: string) => {
-    return availableUsers.filter((user) => user.role === role);
+    const exactMatches = availableUsers.filter((user) => user.role === role);
+    return exactMatches.length > 0 ? exactMatches : availableUsers;
   };
+
+  const hasExactApproverForRole = (role: string) =>
+    availableUsers.some((user) => user.role === role);
 
   const buildApprovalSteps = (type: FormType) => {
     return approvalChains[type].map((step) => {
@@ -184,6 +344,11 @@ export function NewForm() {
               <CardDescription>Provide details about your request</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {userLoadError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {userLoadError}
+                </div>
+              )}
               {/* Form Type */}
               <div className="space-y-2">
                 <Label htmlFor="formType">Form Type *</Label>
@@ -226,6 +391,12 @@ export function NewForm() {
                 />
               </div>
 
+              {currentUser.signatureURL && (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+                  Your uploaded signature image will be attached to this submission.
+                </div>
+              )}
+
               {/* Form-specific fields */}
               {formType === 'Meal Request' && (
                 <div className="grid grid-cols-2 gap-4">
@@ -261,62 +432,95 @@ export function NewForm() {
                 </div>
               )}
 
-              {/* Attachments */}
               <div className="space-y-2">
-                <Label htmlFor="attachments">Attachments</Label>
+                <Label htmlFor="sourcePdf">Upload Document</Label>
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                   <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                  <p className="text-sm text-gray-600 mb-2">
-                    Click to upload or drag and drop
-                  </p>
-                  <p className="text-xs text-gray-500 mb-4">
-                    PDF, DOC, XLSX up to 10MB
-                  </p>
+                  <p className="text-sm text-gray-600 mb-2">Upload the PDF you want to send for approval</p>
                   <Input
-                    id="attachments"
+                    id="sourcePdf"
                     type="file"
-                    multiple
-                    onChange={handleFileChange}
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      if (file && file.type !== 'application/pdf') {
+                        toast.error('Please select a PDF file');
+                        return;
+                      }
+                      setPdfSourceFile(file);
+                    }}
                     className="hidden"
                   />
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => document.getElementById('attachments')?.click()}
+                    onClick={() => document.getElementById('sourcePdf')?.click()}
                   >
-                    Select Files
+                    Select PDF
                   </Button>
-                </div>
-
-                {/* Attachment List */}
-                {attachments.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    {attachments.map((file, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  {pdfSourceFile && (
+                    <>
+                      <p className="text-xs text-gray-500 mt-2">{pdfSourceFile.name}</p>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="mt-2 border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100"
+                        onClick={() => setShowPdfEditor(true)}
                       >
-                        <div className="flex items-center gap-3">
-                          <FileText className="w-5 h-5 text-blue-600" />
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{file.name}</p>
-                            <p className="text-xs text-gray-500">
-                              {(file.size / 1024 / 1024).toFixed(2)} MB
-                            </p>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeAttachment(index)}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                        Modify PDF
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <Dialog open={showPdfEditor} onOpenChange={setShowPdfEditor}>
+                <DialogContent className="sm:max-w-3xl max-h-[calc(100vh-6rem)] overflow-auto">
+                  <DialogHeader>
+                    <DialogTitle>Modify PDF</DialogTitle>
+                  </DialogHeader>
+                  {pdfSourceFile && (
+                    <PdfEditor
+                      file={pdfSourceFile}
+                      annotations={pdfAnnotations}
+                      onChange={setPdfAnnotations}
+                      onClose={() => setShowPdfEditor(false)}
+                      isSaving={isGeneratingPdf}
+                      currentUserId={currentUser.id}
+                      currentUserSignatureURL={currentUser.signatureURL ?? null}
+                    />
+                  )}
+                </DialogContent>
+              </Dialog>
+
+              {generatedPdfUrl && (
+                <div className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-4">
+                  <p className="text-sm text-green-900">Generated PDF ready.</p>
+                  {/* <a
+                    href={generatedPdfUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-blue-700 underline"
+                  >
+                    View saved PDF
+                  </a> */}
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4">
+                <Button
+                  type="button"
+                  variant="default"
+                  className="mt-4 w-full sm:w-auto px-6"
+                  onClick={handleSavePdf}
+                  disabled={isGeneratingPdf}
+                >
+                  {isGeneratingPdf ? 'Saving PDF...' : 'Save PDF'}
+                </Button>
+                <p className="text-xs text-gray-500 mt-3 sm:mt-0">
+                  Save the edited PDF before submitting your request.
+                </p>
               </div>
 
               {/* Approval Chain Preview */}
@@ -346,14 +550,14 @@ export function NewForm() {
                             <SelectContent>
                               {getApproverOptions(step.role).map((user) => (
                                 <SelectItem key={user.id} value={user.id}>
-                                  {user.name}
+                                  {user.name} {user.role ? `(${user.role})` : ''}
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
-                          {getApproverOptions(step.role).length === 0 && (
+                          {!hasExactApproverForRole(step.role) && (
                             <p className="text-xs text-orange-600 col-span-full">
-                              No users with the role "{step.role}" were found. Create a user with that role or choose a different role in the backend.
+                              No exact match for role "{step.role}" was found. You can still choose another available approver from the list.
                             </p>
                           )}
                         </div>
@@ -366,18 +570,37 @@ export function NewForm() {
           </Card>
 
           {/* Actions */}
-          <div className="mt-6 flex gap-4">
-            <Button type="submit" size="lg">
-              Submit Form
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="lg"
-              onClick={() => navigate('/')}
-            >
-              Cancel
-            </Button>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex flex-col sm:flex-row sm:gap-4 w-full">
+              <Button type="submit" size="lg" className="w-full sm:w-auto">
+                Submit Form
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="w-full sm:w-auto"
+                onClick={() => navigate('/')}
+              >
+                Cancel
+              </Button>
+              {draftCreated && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="lg"
+                  className="w-full sm:w-auto"
+                  onClick={handleDeleteDraft}
+                >
+                  Delete Draft
+                </Button>
+              )}
+            </div>
+            {draftCreated && (
+              <p className="text-sm text-gray-600 mt-2">
+                A draft has been saved. Use Delete Draft to discard it and start over.
+              </p>
+            )}
           </div>
         </form>
       </div>
