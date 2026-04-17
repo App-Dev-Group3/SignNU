@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SignatureCanvas } from "react-signature-canvas";
+import { useWorkflow } from "../context/WorkflowContext";
 
 // SignaturePad component allows users to draw their signature
 function SignaturePad({ onSignatureChange, onSignatureData }: { 
@@ -115,23 +116,23 @@ function UploadSignature( { onFileChange, onFileData }: {
 function SubmitForm({ 
     hasSignature, hasFile,
     signatureDataURL, uploadedFile,
-    apiBaseURL, userID
+    apiBaseURL, userID,
+    setCurrentUserSignature,
     }: { 
     hasSignature: boolean; hasFile: boolean; 
     signatureDataURL: string | null; uploadedFile: File | null; 
     apiBaseURL: string; userID: string;
+    setCurrentUserSignature: (signatureURL: string) => void;
     }) {
 
     const uploadSignature = async () => {
 
         if (hasSignature && hasFile) {
-        alert("Please clear the signature pad or remove the uploaded file before submitting.");
-
-        return;
+            alert("Please clear the signature pad or remove the uploaded file before submitting.");
+            return;
         } else if (!hasSignature && !hasFile) {
-        alert("Please provide a signature either by drawing or uploading.");
-
-        return;
+            alert("Please provide a signature either by drawing or uploading.");
+            return;
         }
         
         try {
@@ -146,20 +147,23 @@ function SubmitForm({
 
             const response = await fetch(`${apiBaseURL}/api/users/${userID}/signature`, {
                 method: "PATCH",
-                body: formData
+                credentials: 'include',
+                body: formData,
             });
 
             const data = await response.json();
 
             if (!response.ok) {
-                console.log(data.error);  
-                
+                console.log(data.error);
                 return;
+            }
+
+            if (data.signatureURL) {
+                setCurrentUserSignature(data.signatureURL);
             }
 
         } catch (error) {
             console.log(error);
-
             return;
         }
 
@@ -173,59 +177,57 @@ function SubmitForm({
     );
 }
 
-// Custom hook to fetch user credentials (API base URL and user ID) when the component mounts
-function useUserCredentials( 
-    onAPIBaseURL: (apiBaseURL: string) => void,
-    onUserID: (userID: string) => void
-    ) {
-    
-    // useEffect to fetch the API base URL and user ID from the backend when the component mounts
-    // and pass them to the parent component via the provided callback functions
-    useEffect(() => {
-        const fetchUserData = async () => {
-            const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-
-            if (!API_BASE_URL) {
-                alert("API_BASE_URL is not defined!");
-
-                return;
-            }
-
-            const response = await fetch(`${API_BASE_URL}/api/users/me`, {
-            credentials: 'include',
-            });
-
-            const data = await response.json();
-            
-            onAPIBaseURL(API_BASE_URL);
-            onUserID(data.user._id);
-        };
-
-        fetchUserData();
-    }, []);
-}
-
 // Main component that combines the SignaturePad, UploadSignature, and SubmitForm components to create the digital signature profile page
 function DigitalSignatureProfile() {
     const [hasSignature, setHasSignature] = useState(false);
     const [hasFile, setHasFile] = useState(false);
     const [signatureDataURL, setSignatureDataURL] = useState<string | null>(null);
     const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-    const [apiBaseURL, setAPIBaseURL] = useState<string>(""); 
-    const [userID, setUserID] = useState<string>("");
+    const { currentUser, setCurrentUserSignature } = useWorkflow();
+    const apiBaseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
-    useUserCredentials(setAPIBaseURL, setUserID );
+    if (!currentUser) {
+        return null;
+    }
+
+    const userID = currentUser.id;
 
     return (
-        <div>
-            <SignaturePad 
-                onSignatureChange={setHasSignature}
-                onSignatureData={setSignatureDataURL}
-            />
+        <div style={{ padding: '20px' }}>
+            <h1>Modify Signature</h1>
+            <p style={{ marginBottom: '20px' }}>
+                Upload your signature image here. If you prefer, you can still draw your signature below.
+            </p>
+
+            {currentUser.signatureURL ? (
+                <div style={{ marginBottom: '20px', padding: '16px', border: '1px solid #ddd', borderRadius: '12px', maxWidth: '420px' }}>
+                    <h2 style={{ marginBottom: '12px' }}>Current Uploaded Signature</h2>
+                    <img
+                        src={currentUser.signatureURL}
+                        alt="Current uploaded signature"
+                        style={{ width: '100%', maxWidth: '400px', border: '1px solid #ccc', borderRadius: '8px' }}
+                    />
+                </div>
+            ) : (
+                <div style={{ marginBottom: '20px', color: '#555' }}>
+                    <strong>No uploaded signature found yet.</strong> Use the upload field below to add one.
+                </div>
+            )}
+
             <UploadSignature
                 onFileChange={setHasFile}
                 onFileData={setUploadedFile}
             />
+
+            <div style={{ marginTop: '40px', marginBottom: '20px' }}>
+                <p style={{ fontWeight: '600' }}>Or draw your signature</p>
+            </div>
+
+            <SignaturePad 
+                onSignatureChange={setHasSignature}
+                onSignatureData={setSignatureDataURL}
+            />
+
             <SubmitForm 
                 hasSignature={hasSignature} 
                 hasFile={hasFile} 
@@ -233,6 +235,7 @@ function DigitalSignatureProfile() {
                 uploadedFile={uploadedFile}
                 apiBaseURL={apiBaseURL}
                 userID={userID}
+                setCurrentUserSignature={setCurrentUserSignature}
             />
         </div>
     );

@@ -27,9 +27,10 @@ interface PdfEditorProps {
   onClose: () => void;
   isSaving: boolean;
   currentUserId?: string;
+  currentUserSignatureURL?: string | null;
 }
 
-export function PdfEditor({ file, annotations, onChange, onClose, isSaving, currentUserId }: PdfEditorProps) {
+export function PdfEditor({ file, annotations, onChange, onClose, isSaving, currentUserId, currentUserSignatureURL }: PdfEditorProps) {
   const pageRefs = useRef<Array<HTMLCanvasElement | null>>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfRef = useRef<any>(null);
@@ -389,6 +390,20 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
               />
               {selectedAnnotation?.type === 'signature' ? (
                 <>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <Button type="button" variant="outline" onClick={() => updateAnnotation(selectedAnnotation.id, { signatureData: undefined })}>
+                      Draw Signature
+                    </Button>
+                    {currentUserSignatureURL ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => updateAnnotation(selectedAnnotation.id, { signatureData: currentUserSignatureURL })}
+                      >
+                        Use Uploaded Signature
+                      </Button>
+                    ) : null}
+                  </div>
                   <div className="border rounded-lg overflow-hidden">
                     <canvas
                       ref={signatureCanvasRef}
@@ -401,7 +416,7 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                       className="block w-full bg-white cursor-crosshair"
                     />
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mt-2">
                     <Button type="button" variant="outline" onClick={clearSignatureCanvas}>
                       Clear Signature
                     </Button>

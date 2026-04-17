@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+﻿import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { toast } from 'sonner';
 
 /* ===================== TYPES ===================== */
@@ -122,6 +122,7 @@ interface WorkflowContextType {
 
   addForm: (form: Omit<FormSubmission, 'submittedAt' | 'currentStep' | 'signatureMarkers'>) => Promise<FormSubmission | undefined>;
   updateForm: (id: string, updates: Partial<FormSubmission>) => Promise<void>;
+  deleteForm: (id: string) => Promise<void>;
   getFormById: (id: string) => FormSubmission | undefined;
 
   approveStep: (formId: string, stepId: string, comments?: string) => Promise<void>;
@@ -162,6 +163,7 @@ interface WorkflowContextType {
   markNotificationRead: (notificationId: string) => Promise<void>;
 
   downloadFormPDF: (formId: string) => void;
+  setCurrentUserSignature: (signatureURL: string) => void;
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);
@@ -180,6 +182,12 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         'Content-Type': 'application/json',
       },
     });
+  };
+
+  const setCurrentUserSignature = (signatureURL: string) => {
+    setCurrentUser((prevUser) =>
+      prevUser ? { ...prevUser, signatureURL } : prevUser
+    );
   };
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -338,6 +346,21 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Unable to update form:', error);
       setForms((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
+    }
+  };
+
+  const deleteForm = async (id: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/forms/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to delete form');
+      }
+      setForms((prev) => prev.filter((form) => form.id !== id));
+    } catch (error) {
+      console.error('Unable to delete form:', error);
+      setForms((prev) => prev.filter((form) => form.id !== id));
     }
   };
 
@@ -722,6 +745,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         addAttachment,
         uploadUserPdf,
         generateFormPdf,
+        deleteForm,
 
         generateQRSession,
         validateQRSession,
@@ -735,6 +759,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         markNotificationRead,
 
         downloadFormPDF,
+        setCurrentUserSignature,
       }}
     >
       {children}

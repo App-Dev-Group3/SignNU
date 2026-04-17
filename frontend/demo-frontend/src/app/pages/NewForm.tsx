@@ -43,7 +43,7 @@ const approvalChains: Record<FormType, Array<{ role: string; userId: string; use
 
 export function NewForm() {
   const navigate = useNavigate();
-  const { addForm, updateForm, generateFormPdf, currentUser } = useWorkflow();
+  const { addForm, updateForm, deleteForm, generateFormPdf, currentUser } = useWorkflow();
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
   if (!currentUser) {
@@ -176,6 +176,34 @@ export function NewForm() {
       toast.error(error?.message || 'Failed to save PDF');
     } finally {
       setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleDeleteDraft = async () => {
+    if (!draftCreated) return;
+
+    const confirmed = window.confirm(
+      'Delete this draft? This action cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    try {
+      await deleteForm(formIdRef.current);
+      setDraftCreated(false);
+      setGeneratedPdfUrl('');
+      setPdfSourceFile(null);
+      setPdfAnnotations([]);
+      setAttachments([]);
+      setFormType('');
+      setTitle('');
+      setDescription('');
+      setFormData({});
+      setApprovalSteps([]);
+      toast.success('Draft deleted successfully');
+      navigate('/submissions');
+    } catch (error) {
+      console.error('Delete draft failed:', error);
+      toast.error('Unable to delete draft');
     }
   };
 
@@ -363,6 +391,12 @@ export function NewForm() {
                 />
               </div>
 
+              {currentUser.signatureURL && (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+                  Your uploaded signature image will be attached to this submission.
+                </div>
+              )}
+
               {/* Form-specific fields */}
               {formType === 'Meal Request' && (
                 <div className="grid grid-cols-2 gap-4">
@@ -429,9 +463,9 @@ export function NewForm() {
                       <p className="text-xs text-gray-500 mt-2">{pdfSourceFile.name}</p>
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="secondary"
                         size="sm"
-                        className="mt-2"
+                        className="mt-2 border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100"
                         onClick={() => setShowPdfEditor(true)}
                       >
                         Modify PDF
@@ -454,6 +488,7 @@ export function NewForm() {
                       onClose={() => setShowPdfEditor(false)}
                       isSaving={isGeneratingPdf}
                       currentUserId={currentUser.id}
+                      currentUserSignatureURL={currentUser.signatureURL ?? null}
                     />
                   )}
                 </DialogContent>
@@ -473,14 +508,20 @@ export function NewForm() {
                 </div>
               )}
 
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleSavePdf}
-                disabled={isGeneratingPdf}
-              >
-                {isGeneratingPdf ? 'Saving PDF...' : 'Save PDF'}
-              </Button>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4">
+                <Button
+                  type="button"
+                  variant="default"
+                  className="mt-4 w-full sm:w-auto px-6"
+                  onClick={handleSavePdf}
+                  disabled={isGeneratingPdf}
+                >
+                  {isGeneratingPdf ? 'Saving PDF...' : 'Save PDF'}
+                </Button>
+                <p className="text-xs text-gray-500 mt-3 sm:mt-0">
+                  Save the edited PDF before submitting your request.
+                </p>
+              </div>
 
               {/* Approval Chain Preview */}
               {formType && (
@@ -529,18 +570,37 @@ export function NewForm() {
           </Card>
 
           {/* Actions */}
-          <div className="mt-6 flex gap-4">
-            <Button type="submit" size="lg">
-              Submit Form
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="lg"
-              onClick={() => navigate('/')}
-            >
-              Cancel
-            </Button>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex flex-col sm:flex-row sm:gap-4 w-full">
+              <Button type="submit" size="lg" className="w-full sm:w-auto">
+                Submit Form
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="w-full sm:w-auto"
+                onClick={() => navigate('/')}
+              >
+                Cancel
+              </Button>
+              {draftCreated && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="lg"
+                  className="w-full sm:w-auto"
+                  onClick={handleDeleteDraft}
+                >
+                  Delete Draft
+                </Button>
+              )}
+            </div>
+            {draftCreated && (
+              <p className="text-sm text-gray-600 mt-2">
+                A draft has been saved. Use Delete Draft to discard it and start over.
+              </p>
+            )}
           </div>
         </form>
       </div>

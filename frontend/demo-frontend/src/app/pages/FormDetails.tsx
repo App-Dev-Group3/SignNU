@@ -42,6 +42,7 @@ export function FormDetails() {
     currentUser,
     updateForm,
     generateFormPdf,
+    deleteForm,
     // generateQRSession,
     sendNudge,
     generateAISummary,
@@ -371,6 +372,22 @@ export function FormDetails() {
   const handleSendNudge = () => {
     sendNudge(form.id);
     toast.success('Nudge sent successfully');
+  };
+
+  const handleDeleteDraft = async () => {
+    if (form.status !== 'draft' || form.submittedById !== currentUser.id) return;
+
+    const confirmed = window.confirm('Delete this draft? This action cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      await deleteForm(form.id);
+      toast.success('Draft deleted successfully');
+      navigate('/submissions');
+    } catch (error) {
+      console.error('Delete draft failed:', error);
+      toast.error('Unable to delete draft');
+    }
   };
 
   const previewPdfAttachment = async (pdfUrl: string) => {
@@ -915,6 +932,12 @@ export function FormDetails() {
                   <Download className="w-4 h-4 mr-2" />
                   Download PDF
                 </Button>
+                {form.status === 'draft' && form.submittedById === currentUser.id && (
+                  <Button onClick={handleDeleteDraft} variant="destructive" size="sm">
+                    <XCircle className="w-4 h-4 mr-2" />
+                    Delete Draft
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </div>
