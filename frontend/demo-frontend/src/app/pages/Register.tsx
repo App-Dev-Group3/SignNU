@@ -25,7 +25,6 @@ export function Register() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validation
     if (!formData.name || !formData.email || !formData.password || !formData.role || !formData.department) {
       toast.error('Please fill in all required fields');
       return;
@@ -59,141 +58,145 @@ export function Register() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      {/* Animated Background Elements */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tl from-blue-500/20 to-purple-500/20 rounded-full blur-3xl animate-pulse delay-1000" />
+    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-white via-slate-50 to-blue-50">
+
+      {/* NAVBAR */}
+      <div className="w-full bg-white border-b border-gray-200 shadow-sm">
+        <div className="px-3 py-2 flex items-center gap-2">
+
+          <div className="w-5 h-5 bg-[#d8b638] rounded flex items-center justify-center">
+            <FileCheck className="w-3 h-3 text-white" />
+          </div>
+
+          <div className="leading-tight">
+            <h1 className="text-xs font-bold text-[#35408e]">SignNU</h1>
+            <p className="text-[12px] text-gray-500">NU Laguna</p>
+          </div>
+
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="relative z-10 min-h-screen flex items-center justify-center p-4 py-12">
+      {/* CONTENT */}
+      <div className="relative z-10 min-h-screen flex items-center justify-center p-4 py-10">
+
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-          {/* Left Side - Branding */}
-          <div className="hidden lg:block space-y-8 text-white">
+
+          {/* LEFT SIDE */}
+          <div className="hidden lg:block space-y-8 text-[#35408e]">
+
             <div className="space-y-6">
-              <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur-md px-6 py-4 rounded-2xl border border-white/20">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/50">
-                  <FileCheck className="w-7 h-7 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-3xl font-bold">SignNU</h1>
-                  <p className="text-sm text-purple-200">NU Laguna</p>
-                </div>
-              </div>
-              
+
               <h2 className="text-5xl font-bold leading-tight">
                 Join Our<br />
-                <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-[#35408e] to-[#d8b638] bg-clip-text text-transparent">
                   Digital Platform
                 </span>
               </h2>
-              
-              <p className="text-xl text-purple-100 leading-relaxed">
+
+              <p className="text-xl text-[#35408e]/70 leading-relaxed">
                 Create your account and experience the future of
                 form management and digital signatures.
               </p>
             </div>
 
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20">
-              <h3 className="font-semibold text-xl mb-6 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-yellow-300" />
+            {/* WHAT'S INCLUDED */}
+            <div className="bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-[#35408e]/10 shadow-lg">
+              <h3 className="font-semibold text-xl mb-6 flex items-center gap-2 text-[#35408e]">
+                <Sparkles className="w-5 h-5 text-[#d8b638]" />
                 What's included:
               </h3>
+
               <div className="space-y-4">
+
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 bg-gradient-to-br from-green-400 to-green-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 bg-[#35408e] rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                     <CheckCircle className="w-4 h-4 text-white" />
                   </div>
                   <div>
                     <p className="font-medium">Unlimited Form Submissions</p>
-                    <p className="text-sm text-purple-200">Create and track as many forms as you need</p>
+                    <p className="text-sm text-[#35408e]/70">
+                      Create and track as many forms as you need
+                    </p>
                   </div>
                 </div>
+
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 bg-gradient-to-br from-green-400 to-green-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 bg-[#35408e] rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                     <CheckCircle className="w-4 h-4 text-white" />
                   </div>
                   <div>
                     <p className="font-medium">Electronic Signatures</p>
-                    <p className="text-sm text-purple-200">Legally binding digital signatures</p>
+                    <p className="text-sm text-[#35408e]/70">
+                      Legally binding digital signatures
+                    </p>
                   </div>
                 </div>
+
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 bg-gradient-to-br from-green-400 to-green-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 bg-[#35408e] rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                     <CheckCircle className="w-4 h-4 text-white" />
                   </div>
                   <div>
                     <p className="font-medium">Real-time Collaboration</p>
-                    <p className="text-sm text-purple-200">Work together seamlessly with your team</p>
+                    <p className="text-sm text-[#35408e]/70">
+                      Work together seamlessly with your team
+                    </p>
                   </div>
                 </div>
+
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 bg-gradient-to-br from-green-400 to-green-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 bg-[#35408e] rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                     <CheckCircle className="w-4 h-4 text-white" />
                   </div>
                   <div>
                     <p className="font-medium">AI-Powered Insights</p>
-                    <p className="text-sm text-purple-200">Smart summaries and analytics</p>
+                    <p className="text-sm text-[#35408e]/70">
+                      Smart summaries and analytics
+                    </p>
                   </div>
                 </div>
+
               </div>
             </div>
           </div>
 
-          {/* Right Side - Register Form */}
+          {/* RIGHT SIDE */}
           <div className="w-full">
-            <Card className="shadow-2xl border-0 bg-white/95 backdrop-blur-xl">
-              <CardHeader className="space-y-2 pb-6">
-                <div className="lg:hidden flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <FileCheck className="w-7 h-7 text-white" />
-                  </div>
-                  <div>
-                    <h1 className="text-2xl font-bold text-gray-900">SignNU</h1>
-                    <p className="text-sm text-gray-600">NU Laguna</p>
-                  </div>
-                </div>
-                <CardTitle className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+
+           <Card className="relative overflow-hidden bg-white/80 backdrop-blur-xl border border-[#35408e]/10 shadow-2xl rounded-xl">
+
+           {/* GRADIENT BAR (FIXED) */}
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#35408e] to-[#d8b638]" />
+
+            <CardHeader className="space-y-2 pb-6 pt-6 relative z-10">
+                <CardTitle className="text-3xl font-bold text-[#35408e]">
                   Create Account
                 </CardTitle>
-                <CardDescription className="text-base">
+                <CardDescription>
                   Get started in less than a minute
                 </CardDescription>
               </CardHeader>
-              
+
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-4">
+
                   <div className="space-y-2">
-                    <Label htmlFor="name" className="text-sm font-medium">Full Name *</Label>
-                    <div className="relative group">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-purple-600 transition-colors" />
-                      <Input
-                        id="name"
-                        type="text"
-                        placeholder="Juan Dela Cruz"
-                        value={formData.name}
-                        onChange={(e) => updateField('name', e.target.value)}
-                        className="pl-12 h-11 border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
-                        disabled={isLoading}
-                      />
-                    </div>
+                    <Label>Full Name *</Label>
+                    <Input
+                      value={formData.name}
+                      onChange={(e) => updateField('name', e.target.value)}
+                      className="h-11"
+                    />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="email" className="text-sm font-medium">Email Address *</Label>
-                    <div className="relative group">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-purple-600 transition-colors" />
-                      <Input
-                        id="email"
-                        type="email"
-                        placeholder="you@nu.edu.ph"
-                        value={formData.email}
-                        onChange={(e) => updateField('email', e.target.value)}
-                        className="pl-12 h-11 border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
-                        disabled={isLoading}
-                      />
-                    </div>
+                    <Label>Email Address *</Label>
+                    <Input
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => updateField('email', e.target.value)}
+                      className="h-11"
+                    />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -251,88 +254,66 @@ export function Register() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="password" className="text-sm font-medium">Password *</Label>
-                    <div className="relative group">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-purple-600 transition-colors" />
-                      <Input
-                        id="password"
-                        type="password"
-                        placeholder="Min. 8 characters"
-                        value={formData.password}
-                        onChange={(e) => updateField('password', e.target.value)}
-                        className="pl-12 h-11 border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
-                        disabled={isLoading}
-                      />
-                    </div>
+                    <Label>Password *</Label>
+                    <Input
+                      type="password"
+                      value={formData.password}
+                      onChange={(e) => updateField('password', e.target.value)}
+                      className="h-11"
+                    />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="confirmPassword" className="text-sm font-medium">Confirm Password *</Label>
-                    <div className="relative group">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-purple-600 transition-colors" />
-                      <Input
-                        id="confirmPassword"
-                        type="password"
-                        placeholder="Re-enter password"
-                        value={formData.confirmPassword}
-                        onChange={(e) => updateField('confirmPassword', e.target.value)}
-                        className="pl-12 h-11 border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
-                        disabled={isLoading}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-2 pt-2">
-                    <input
-                      type="checkbox"
-                      id="terms"
-                      className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 mt-0.5"
-                      required
+                    <Label>Confirm Password *</Label>
+                    <Input
+                      type="password"
+                      value={formData.confirmPassword}
+                      onChange={(e) => updateField('confirmPassword', e.target.value)}
+                      className="h-11"
                     />
-                    <label htmlFor="terms" className="text-sm text-gray-600 leading-tight">
-                      I agree to the{' '}
-                      <button type="button" className="font-medium text-purple-600 hover:text-purple-700 transition-colors">
-                        Terms of Service
-                      </button>{' '}
-                      and{' '}
-                      <button type="button" className="font-medium text-purple-600 hover:text-purple-700 transition-colors">
-                        Privacy Policy
-                      </button>
-                    </label>
                   </div>
 
                   <Button
                     type="submit"
-                    className="w-full h-12 text-base font-medium bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg shadow-purple-500/30 transition-all mt-4"
+                    className="w-full h-12 bg-[#35408e] hover:bg-[#2c3577] text-white shadow-lg"
                     disabled={isLoading}
                   >
-                    {isLoading ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                        Creating account...
-                      </>
-                    ) : (
+                    {isLoading ? 'Creating account...' : (
                       <>
                         <UserPlus className="w-5 h-5 mr-2" />
                         Create Account
                       </>
                     )}
                   </Button>
+
                 </form>
 
                 <div className="mt-6 text-center">
                   <p className="text-sm text-gray-600">
                     Already have an account?{' '}
-                    <Link to="/login" className="font-semibold text-purple-600 hover:text-purple-700 transition-colors">
+                    <Link to="/login" className="font-semibold text-[#35408e]">
                       Sign in
                     </Link>
                   </p>
                 </div>
+
               </CardContent>
+
             </Card>
+
           </div>
+
         </div>
       </div>
+
+      {/* FOOTER */}
+      <footer className="mt-10 flex flex-col items-center pb-4">
+        <div className="w-90 border-t border-gray-200 shadow-lg" />
+        <p className="text-[11px] text-gray-500 mt-2 text-center">
+          © {new Date().getFullYear()} SignNU • National University Laguna
+        </p>
+      </footer>
+
     </div>
   );
 }
