@@ -215,8 +215,8 @@ export function NewForm() {
       return;
     }
 
-    if (approvalSteps.some((step) => !step.userId)) {
-      toast.error('Please select an approver for every approval step');
+    if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim() || !step.userId)) {
+      toast.error('Please enter a role and select an approver for every approval step');
       return;
     }
 
@@ -286,23 +286,44 @@ export function NewForm() {
     }
   };
 
+  const normalizeRole = (role: string) => role.trim().toLowerCase();
+
   const getApproverOptions = (role: string) => {
-    const exactMatches = availableUsers.filter((user) => user.role === role);
+    const target = normalizeRole(role);
+    const exactMatches = availableUsers.filter((user) => normalizeRole(user.role) === target);
     return exactMatches.length > 0 ? exactMatches : availableUsers;
   };
 
   const hasExactApproverForRole = (role: string) =>
-    availableUsers.some((user) => user.role === role);
+    availableUsers.some((user) => normalizeRole(user.role) === normalizeRole(role));
+
+  const findMatchingUserForRole = (role: string) => {
+    const target = normalizeRole(role);
+    return availableUsers.find((user) => normalizeRole(user.role) === target) ?? null;
+  };
 
   const buildApprovalSteps = (type: FormType) => {
     return approvalChains[type].map((step) => {
-      const matchedUser = availableUsers.find((user) => user.role === step.role);
+      const matchedUser = findMatchingUserForRole(step.role);
       return {
         role: step.role,
         userId: matchedUser?.id || '',
         userName: matchedUser?.name || '',
       };
     });
+  };
+
+  const updateApprovalStepRole = (index: number, role: string) => {
+    const matchedUser = findMatchingUserForRole(role);
+    setApprovalSteps((prev) => prev.map((step, idx) => {
+      if (idx !== index) return step;
+      return {
+        ...step,
+        role,
+        userId: matchedUser?.id || step.userId,
+        userName: matchedUser?.name || step.userName,
+      };
+    }));
   };
 
   const handleApproverChange = (index: number, userId: string) => {
@@ -317,6 +338,17 @@ export function NewForm() {
         userName: user.name,
       };
     }));
+  };
+
+  const addApprovalStep = () => {
+    setApprovalSteps((prev) => [
+      ...prev,
+      { role: '', userId: '', userName: '' },
+    ]);
+  };
+
+  const removeApprovalStep = (index: number) => {
+    setApprovalSteps((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   useEffect(() => {
@@ -526,38 +558,62 @@ export function NewForm() {
               {/* Approval Chain Preview */}
               {formType && (
                 <div className="space-y-2">
-                  <Label>Approval Chain</Label>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <Label>Approval Chain</Label>
+                      <p className="text-sm text-gray-600">Pick the default chain or adjust it by adding/removing approval roles.</p>
+                    </div>
+                    <Button type="button" variant="secondary" size="sm" onClick={addApprovalStep}>
+                      Add approval role
+                    </Button>
+                  </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-sm text-gray-600 mb-3">
-                      Select an approver account for each approval role below.
+                      Enter a role for each approval step and select the matching approver. Role matching is case-insensitive.
                     </p>
                     <div className="space-y-4">
                       {approvalSteps.map((step, index) => (
-                        <div key={index} className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_2fr] items-center text-sm">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs">
-                              {index + 1}
+                        <div key={index} className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] items-start text-sm">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs">
+                                {index + 1}
+                              </div>
+                              <div className="font-medium">Approval step</div>
                             </div>
-                            <div>
-                              <div className="font-medium">{step.role}</div>
-                              <div className="text-gray-500 text-xs">Choose a user for this role</div>
-                            </div>
+                            <Input
+                              value={step.role}
+                              onChange={(e) => updateApprovalStepRole(index, e.target.value)}
+                              placeholder="Role name (e.g. Department Head)"
+                            />
+                            <div className="text-gray-500 text-xs">Role lookup ignores capitalization.</div>
                           </div>
-                          <Select value={step.userId} onValueChange={(value) => handleApproverChange(index, value)}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select approver" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {getApproverOptions(step.role).map((user) => (
-                                <SelectItem key={user.id} value={user.id}>
-                                  {user.name} {user.role ? `(${user.role})` : ''}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {!hasExactApproverForRole(step.role) && (
+                          <div>
+                            <Select value={step.userId} onValueChange={(value) => handleApproverChange(index, value)}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select approver" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getApproverOptions(step.role).map((user) => (
+                                  <SelectItem key={user.id} value={user.id}>
+                                    {user.name} {user.role ? `(${user.role})` : ''}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:bg-red-50"
+                            onClick={() => removeApprovalStep(index)}
+                          >
+                            Remove
+                          </Button>
+                          {!hasExactApproverForRole(step.role) && step.role.trim() && (
                             <p className="text-xs text-orange-600 col-span-full">
-                              No exact match for role "{step.role}" was found. You can still choose another available approver from the list.
+                              No matching approver role found for "{step.role}". Please select an available user manually.
                             </p>
                           )}
                         </div>

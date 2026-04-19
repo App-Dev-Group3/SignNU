@@ -218,10 +218,15 @@ export function Dashboard() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-gray-500">
-                      <span>{form.type}</span>
-                      <span>•</span>
-                      <span>{format(new Date(form.submittedAt), 'MMM d, yyyy')}</span>
+                    <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-xs text-gray-500">
+                      <div className="flex items-center gap-4">
+                        <span>{form.type}</span>
+                        <span>•</span>
+                        <span>{format(new Date(form.submittedAt), 'MMM d, yyyy')}</span>
+                      </div>
+                      <Link to={`/form/${form.id}`}>
+                        <Button size="sm">View Details</Button>
+                      </Link>
                     </div>
                   </div>
                 ))}
