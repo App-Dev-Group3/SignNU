@@ -661,10 +661,46 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const sendNudge = (formId: string) => {
+  const sendNudge = async (formId: string) => {
     const form = forms.find((f) => f.id === formId);
-    if (!form) return;
-    toast.success('Nudge sent successfully');
+    if (!form || !currentUser) return;
+
+    const pendingApprovers = form.approvalSteps.filter((step) => step.status === 'pending');
+    if (pendingApprovers.length === 0) {
+      toast.error('No pending approvers to nudge');
+      return;
+    }
+
+    try {
+      await Promise.all(
+        pendingApprovers.map((step) =>
+          authFetch(`${API_BASE_URL}/api/users/${step.userId}/notifications`, {
+            method: 'POST',
+            body: JSON.stringify({
+              formId: form.id,
+              userId: step.userId,
+              message: `${currentUser.name} has nudged you to review the pending request "${form.title}".`,
+            }),
+          })
+        )
+      );
+
+      setForms((prev) =>
+        prev.map((f) =>
+          f.id === formId
+            ? {
+                ...f,
+                lastNudgedAt: new Date().toISOString(),
+              }
+            : f
+        )
+      );
+
+      toast.success('Nudge sent to pending approvers');
+    } catch (error) {
+      console.error('Nudge failed:', error);
+      toast.error('Unable to send nudge');
+    }
   };
 
   const generateAISummary = async (formId: string) => {

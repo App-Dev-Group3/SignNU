@@ -8,6 +8,7 @@ import { QRSignature } from "./pages/QRSignature";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { Admin } from "./pages/Admin";
+import { AdminDashboard } from "./pages/AdminDashboard";
 import { Root } from "./pages/Root";
 
 // ✅ NEW PAGE IMPORT
@@ -36,8 +37,8 @@ export const router = createBrowserRouter([
 
       // ✅ NEW ROUTE ADDED HERE
       { path: "account-settings", Component: AccountSettings },
-
       { path: "admin", Component: Admin },
+      { path: "admin/dashboard", Component: AdminDashboard },
     ],
   },
   {
