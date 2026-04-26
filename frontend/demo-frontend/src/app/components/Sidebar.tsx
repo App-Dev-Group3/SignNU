@@ -26,16 +26,16 @@ export function Sidebar() {
   };
 
   const navItems = [
-    { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
+    ...(currentUser.role === 'Admin' ? [] : [{ path: '/', icon: LayoutDashboard, label: 'Dashboard' }]),
     { path: '/new-form', icon: FileText, label: 'New Form' },
     { path: '/submissions', icon: FileCheck, label: 'My Submissions' },
     { path: '/approvals', icon: CheckSquare, label: 'Approval Queue' },
-
-    // ✅ NEW FEATURE ADDED HERE
     { path: '/account-settings', icon: Settings, label: 'Account Settings' },
-
     ...(currentUser.role === 'Admin'
-      ? [{ path: '/admin', icon: School, label: 'Admin' }]
+      ? [
+          { path: '/admin', icon: School, label: 'Accounts' },
+          { path: '/admin/dashboard', icon: CheckSquare, label: 'Admin Requests' },
+        ]
       : []),
   ];
 
