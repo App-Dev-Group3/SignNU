@@ -14,7 +14,7 @@ export function ApprovalQueue() {
 
   const pendingApprovals = forms.filter(f => 
     f.status === 'pending' && 
-    f.approvalSteps[f.currentStep]?.userId === currentUser.id
+    f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
   );
 
   const approvedByMe = forms.filter(f =>

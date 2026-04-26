@@ -215,6 +215,11 @@ export function NewForm() {
       return;
     }
 
+    if (!pdfSourceFile && attachments.length === 0) {
+      toast.error('Please upload a PDF document before submitting your request');
+      return;
+    }
+
     if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim() || !step.userId)) {
       toast.error('Please enter a role and select an approver for every approval step');
       return;
@@ -358,7 +363,25 @@ export function NewForm() {
     }
 
     setApprovalSteps(buildApprovalSteps(formType));
-  }, [formType, availableUsers]);
+  }, [formType]);
+
+  useEffect(() => {
+    if (!formType || approvalSteps.length === 0) {
+      return;
+    }
+
+    setApprovalSteps((prevSteps) => prevSteps.map((step) => {
+      if (step.userId || !step.role.trim()) {
+        return step;
+      }
+      const matchedUser = findMatchingUserForRole(step.role);
+      return matchedUser ? {
+        ...step,
+        userId: matchedUser.id,
+        userName: matchedUser.name,
+      } : step;
+    }));
+  }, [availableUsers, formType]);
 
   return (
     <div className="p-8">
@@ -508,7 +531,7 @@ export function NewForm() {
               </div>
 
               <Dialog open={showPdfEditor} onOpenChange={setShowPdfEditor}>
-                <DialogContent className="sm:max-w-3xl max-h-[calc(100vh-6rem)] overflow-auto">
+                <DialogContent className="w-full max-w-[90vw] sm:max-w-5xl max-h-[calc(100vh-6rem)] overflow-auto">
                   <DialogHeader>
                     <DialogTitle>Modify PDF</DialogTitle>
                   </DialogHeader>
@@ -588,9 +611,10 @@ export function NewForm() {
                             />
                             <div className="text-gray-500 text-xs">Role lookup ignores capitalization.</div>
                           </div>
-                          <div>
+                          <div className="space-y-2">
+                            <Label className="text-sm font-medium">Approver</Label>
                             <Select value={step.userId} onValueChange={(value) => handleApproverChange(index, value)}>
-                              <SelectTrigger>
+                              <SelectTrigger className="h-11">
                                 <SelectValue placeholder="Select approver" />
                               </SelectTrigger>
                               <SelectContent>
@@ -628,7 +652,16 @@ export function NewForm() {
           {/* Actions */}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex flex-col sm:flex-row sm:gap-4 w-full">
-              <Button type="submit" size="lg" className="w-full sm:w-auto">
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full sm:w-auto"
+                disabled={
+                  (!pdfSourceFile && attachments.length === 0) ||
+                  approvalSteps.length === 0 ||
+                  approvalSteps.some((step) => !step.role.trim() || !step.userId)
+                }
+              >
                 Submit Form
               </Button>
               <Button

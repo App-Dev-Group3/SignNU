@@ -162,7 +162,25 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
 
   const selectedAnnotation = annotations.find((annotation) => annotation.id === selectedId) || null;
 
+  const setupSignatureCanvas = () => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineCap = 'round';
+  };
+
   useEffect(() => {
+    setupSignatureCanvas();
     if (selectedAnnotation?.type === 'signature') {
       loadSignatureToCanvas(selectedAnnotation.signatureData);
     }
@@ -174,12 +192,13 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
     if (!dataUrl) return;
 
     const img = new Image();
     img.onload = () => {
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, rect.width, rect.height);
     };
     img.src = dataUrl;
   };
@@ -196,7 +215,8 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
     if (selectedAnnotation?.type === 'signature') {
       updateAnnotation(selectedAnnotation.id, { signatureData: undefined });
     }
@@ -259,27 +279,34 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
     };
   }, [draggingId]);
 
-  const startSignatureDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const startSignatureDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    e.preventDefault();
+    setupSignatureCanvas();
     setIsSignatureDrawing(true);
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     ctx.beginPath();
     ctx.moveTo(x, y);
+
+    if (canvas.setPointerCapture) {
+      canvas.setPointerCapture(e.pointerId);
+    }
   };
 
-  const drawSignature = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const drawSignature = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isSignatureDrawing) return;
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -290,8 +317,17 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
     ctx.stroke();
   };
 
-  const stopSignatureDrawing = () => {
+  const stopSignatureDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     setIsSignatureDrawing(false);
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    if (canvas.releasePointerCapture) {
+      try {
+        canvas.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore if pointer capture is already released
+      }
+    }
   };
 
   return (
@@ -409,10 +445,11 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                       ref={signatureCanvasRef}
                       width={320}
                       height={120}
-                      onMouseDown={startSignatureDrawing}
-                      onMouseMove={drawSignature}
-                      onMouseUp={stopSignatureDrawing}
-                      onMouseLeave={stopSignatureDrawing}
+                      onPointerDown={startSignatureDrawing}
+                      onPointerMove={drawSignature}
+                      onPointerUp={stopSignatureDrawing}
+                      onPointerLeave={stopSignatureDrawing}
+                      onPointerCancel={stopSignatureDrawing}
                       className="block w-full bg-white cursor-crosshair"
                     />
                   </div>

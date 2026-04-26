@@ -248,21 +248,37 @@ const generatePdf = async (req, res) => {
     const finalPdfBytes = await pdfDoc.save();
     const uploadResult = await uploadPdfToCloudinary(finalPdfBytes, id, pdfFile.originalname);
 
+    const attachmentId = body.attachmentId;
+    const updateOps = {
+      $set: {
+        generatedPdfURL: uploadResult.secure_url,
+      },
+    };
+
+    if (attachmentId) {
+      updateOps.$set['attachments.$[att].url'] = uploadResult.secure_url;
+      updateOps.$set['attachments.$[att].name'] = `filled_${pdfFile.originalname}`;
+      updateOps.$set['attachments.$[att].size'] = finalPdfBytes.length;
+      updateOps.$set['attachments.$[att].type'] = 'application/pdf';
+    } else {
+      updateOps.$push = {
+        attachments: {
+          id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          name: `filled_${pdfFile.originalname}`,
+          size: finalPdfBytes.length,
+          type: 'application/pdf',
+          url: uploadResult.secure_url,
+        },
+      };
+    }
+
     const updatedForm = await Form.findOneAndUpdate(
       { id },
+      updateOps,
       {
-        $set: { generatedPdfURL: uploadResult.secure_url },
-        $push: {
-          attachments: {
-            id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-            name: `filled_${pdfFile.originalname}`,
-            size: finalPdfBytes.length,
-            type: 'application/pdf',
-            url: uploadResult.secure_url,
-          },
-        },
-      },
-      { new: true }
+        new: true,
+        arrayFilters: attachmentId ? [{ 'att.id': attachmentId }] : undefined,
+      }
     );
 
     if (!updatedForm) {

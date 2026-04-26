@@ -192,6 +192,33 @@ function DigitalSignatureProfile() {
 
     const userID = currentUser.id;
 
+    const clearCurrentSignature = async () => {
+        if (!currentUser.signatureURL) return;
+
+        try {
+            const response = await fetch(`${apiBaseURL}/api/users/${userID}`, {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ signatureURL: '' }),
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                alert(data.error || 'Unable to clear saved signature.');
+                return;
+            }
+
+            setCurrentUserSignature('');
+            alert('Saved signature cleared. You can now upload a new one.');
+        } catch (error) {
+            console.error('Clear signature failed:', error);
+            alert('Unable to clear saved signature.');
+        }
+    };
+
     return (
         <div style={{ padding: '20px' }}>
             <h1>Modify Signature</h1>
@@ -201,7 +228,12 @@ function DigitalSignatureProfile() {
 
             {currentUser.signatureURL ? (
                 <div style={{ marginBottom: '20px', padding: '16px', border: '1px solid #ddd', borderRadius: '12px', maxWidth: '420px' }}>
-                    <h2 style={{ marginBottom: '12px' }}>Current Uploaded Signature</h2>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <h2 style={{ margin: 0 }}>Current Uploaded Signature</h2>
+                        <button onClick={clearCurrentSignature} style={{ padding: '8px 12px', border: '1px solid #ccc', borderRadius: '8px', background: '#fff', cursor: 'pointer' }}>
+                            Clear Saved Signature
+                        </button>
+                    </div>
                     <img
                         src={currentUser.signatureURL}
                         alt="Current uploaded signature"

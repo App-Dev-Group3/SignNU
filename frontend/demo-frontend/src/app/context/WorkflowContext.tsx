@@ -146,7 +146,8 @@ interface WorkflowContextType {
       yPct: number;
       widthPct: number;
       heightPct: number;
-    }>
+    }>,
+    attachmentId?: string,
   ) => Promise<string>;
 
   generateQRSession: (formId: string, stepId: string) => QRSession;
@@ -343,9 +344,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
       const updatedForm = await res.json();
       setForms((prev) => prev.map((f) => (f.id === id ? updatedForm : f)));
+      return updatedForm;
     } catch (error) {
       console.error('Unable to update form:', error);
       setForms((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
+      return undefined;
     }
   };
 
@@ -385,56 +388,62 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   /* ===================== APPROVAL ===================== */
 
   const approveStep = async (formId: string, stepId: string) => {
-    const updatedForms = forms.map((form) => {
-      if (form.id !== formId) return form;
+    const form = forms.find((f) => f.id === formId);
+    if (!form) return;
 
-      const approvedSteps = form.approvalSteps.map((s) =>
-        s.id === stepId
-          ? {
-              ...s,
-              status: 'approved' as const,
-              timestamp: new Date().toISOString(),
-            }
-          : s
-      );
+    const approvedSteps = form.approvalSteps.map((s) =>
+      s.id === stepId
+        ? {
+            ...s,
+            status: 'approved' as const,
+            timestamp: new Date().toISOString(),
+          }
+        : s
+    );
 
-      const nextPendingStep = approvedSteps.findIndex((s) => s.status === 'pending');
-      const isFinalApproval = nextPendingStep === -1;
+    const nextPendingStep = approvedSteps.findIndex((s) => s.status === 'pending');
+    const isFinalApproval = nextPendingStep === -1;
+    const updatedForm = {
+      ...form,
+      approvalSteps: approvedSteps,
+      currentStep: isFinalApproval ? form.currentStep : nextPendingStep,
+      status: isFinalApproval ? 'approved' as const : form.status,
+    };
 
-      return {
-        ...form,
-        approvalSteps: approvedSteps,
-        currentStep: isFinalApproval ? form.currentStep : nextPendingStep,
-        status: isFinalApproval ? 'approved' as const : form.status,
-      };
+    setForms((prev) => prev.map((f) => (f.id === formId ? updatedForm : f)));
+    await updateForm(formId, {
+      approvalSteps: approvedSteps,
+      currentStep: updatedForm.currentStep,
+      status: updatedForm.status,
     });
-
-    setForms(updatedForms);
-    updateForm(formId, updatedForms.find((f) => f.id === formId));
   };
 
   const rejectStep = async (formId: string, stepId: string, comments: string) => {
-    const updatedForms = forms.map((form) =>
-      form.id === formId
+    const form = forms.find((f) => f.id === formId);
+    if (!form) return;
+
+    const rejectedSteps = form.approvalSteps.map((s) =>
+      s.id === stepId
         ? {
-            ...form,
+            ...s,
             status: 'rejected' as const,
-            approvalSteps: form.approvalSteps.map((s) =>
-              s.id === stepId
-                ? {
-                    ...s,
-                    status: 'rejected' as const,
-                    comments,
-                    timestamp: new Date().toISOString(),
-                  }
-                : s
-            ),
+            comments,
+            timestamp: new Date().toISOString(),
           }
-        : form
+        : s
     );
 
-    setForms(updatedForms);
-    updateForm(formId, updatedForms.find((f) => f.id === formId));
+    const updatedForm = {
+      ...form,
+      approvalSteps: rejectedSteps,
+      status: 'rejected' as const,
+    };
+
+    setForms((prev) => prev.map((f) => (f.id === formId ? updatedForm : f)));
+    await updateForm(formId, {
+      approvalSteps: rejectedSteps,
+      status: 'rejected' as const,
+    });
   };
 
   /* ===================== QR ===================== */
@@ -524,7 +533,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       yPct: number;
       widthPct: number;
       heightPct: number;
-    }>
+    }>,
+    attachmentId?: string,
   ) => {
     const formData = new FormData();
     formData.append('pdfFile', pdfFile);
@@ -537,6 +547,9 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     }
     if (annotations) {
       formData.append('annotations', JSON.stringify(annotations));
+    }
+    if (attachmentId) {
+      formData.append('attachmentId', attachmentId);
     }
 
     const res = await fetch(`${API_BASE_URL}/api/forms/${formId}/pdf`, {
