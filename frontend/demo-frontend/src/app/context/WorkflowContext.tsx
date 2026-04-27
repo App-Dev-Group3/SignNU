@@ -270,6 +270,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         name: data.user.username,
         role: data.user.role,
         email: data.user.email,
+        signatureURL: data.user.signatureURL ?? data.user.signatureUrl,
       });
 
       setIsAuthenticated(true);
@@ -666,6 +667,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     if (!form || !currentUser) return;
 
     const pendingApprovers = form.approvalSteps.filter((step) => step.status === 'pending');
+    if (form.submittedById !== currentUser.id && currentUser.role !== 'Admin') {
+      toast.error('Only the request owner or an admin can send a nudge');
+      return;
+    }
+
     if (pendingApprovers.length === 0) {
       toast.error('No pending approvers to nudge');
       return;
@@ -756,6 +762,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         name: responseData.user.username ?? responseData.user.email,
         role: responseData.user.role,
         email: responseData.user.email,
+        signatureURL: responseData.user.signatureURL ?? responseData.user.signatureUrl,
       });
       setIsAuthenticated(true);
 

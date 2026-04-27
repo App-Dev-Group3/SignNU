@@ -66,7 +66,7 @@ export function NewForm() {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [attachments, setAttachments] = useState<Array<{ id?: string; name: string; size: number; type: string; url?: string }>>([]);
   const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
-  const [approvalSteps, setApprovalSteps] = useState<Array<{ role: string; userId: string; userName: string }>>([]);
+  const [approvalSteps, setApprovalSteps] = useState<Array<{ id?: string; role: string; userId: string; userName: string }>>([]);
   const [userLoadError, setUserLoadError] = useState<string | null>(null);
   const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
   const [pdfAnnotations, setPdfAnnotations] = useState<PdfAnnotation[]>([]);
@@ -270,6 +270,15 @@ export function NewForm() {
       if (draftCreated) {
         await updateForm(formId, {
           status: 'pending',
+          title,
+          description,
+          type: formType,
+          formData,
+          approvalSteps: approvalSteps.map((step, index) => ({
+            id: step.id ?? `step-${Date.now()}-${index}`,
+            ...step,
+            status: 'pending' as const,
+          })),
           attachments: attachments.map((att, index) => ({
             ...att,
             id: att.id ?? `att-${Date.now()}-${index}`,

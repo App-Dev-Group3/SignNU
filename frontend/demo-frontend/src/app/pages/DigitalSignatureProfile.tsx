@@ -154,7 +154,8 @@ function SubmitForm({
             const data = await response.json();
 
             if (!response.ok) {
-                console.log(data.error);
+                alert(data.error || 'Unable to upload signature.');
+                console.error('Signature upload failed:', data);
                 return;
             }
 
@@ -162,12 +163,12 @@ function SubmitForm({
                 setCurrentUserSignature(data.signatureURL);
             }
 
+            alert("Signature uploaded to Cloudinary successfully!");
         } catch (error) {
-            console.log(error);
+            console.error('Signature upload error:', error);
+            alert('Unable to upload signature. Please try a PNG/JPG image.');
             return;
         }
-
-        alert("Signature uploaded to Cloudinary successfully!");
     };
 
     return (

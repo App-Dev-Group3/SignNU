@@ -499,9 +499,15 @@ export function FormDetails() {
   };
   */
 
-  const handleSendNudge = () => {
-    sendNudge(form.id);
-    toast.success('Nudge sent successfully');
+  const canSendNudge = form.submittedById === currentUser.id || currentUser.role === 'Admin';
+
+  const handleSendNudge = async () => {
+    if (!canSendNudge) {
+      toast.error('Only the request owner or an admin can send a nudge');
+      return;
+    }
+
+    await sendNudge(form.id);
   };
 
   const handleDeleteRequest = async () => {
@@ -1065,7 +1071,7 @@ export function FormDetails() {
                   Generate QR Code
                 </Button>
                 */}
-                {form.status !== 'approved' && (
+                {form.status !== 'approved' && canSendNudge && (
                   <Button onClick={handleSendNudge} variant="outline" size="sm">
                     <Bell className="w-4 h-4 mr-2" />
                     Send Nudge

@@ -451,7 +451,7 @@ const uploadToCloudinary = (buffer, id) => {
         {
             // Store each user's uploads in their own folder
             folder: `signatures/${id}`,
-            allowed_formats: ['png', 'jpg', 'jpeg'],
+            resource_type: 'auto',
             transformation: [{ width: 300, height: 100, crop: 'fit' }],
             public_id: 'signature'
         },
