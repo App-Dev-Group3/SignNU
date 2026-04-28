@@ -1,10 +1,8 @@
-import dotenv from 'dotenv';
-dotenv.config();
-
-import express from 'express';
-import cors from 'cors';
-import multer from 'multer';
-import { GoogleGenerativeAI } from "@google/generative-ai";
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const multer = require('multer');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 // Initialize Express app
 const app = express();
@@ -24,26 +22,10 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 // Initialize Gemini AI
 const geminiKey = process.env.GEMINI_API_KEY;
 if (!geminiKey) {
-  console.error('⚠️ Warning: GEMINI_API_KEY not found in environment variables');
+  console.warn('⚠️ Warning: GEMINI_API_KEY not found in environment variables');
 }
 
 const genAI = new GoogleGenerativeAI(geminiKey || '');
-
-const formatResponseContent = (content) => {
-    if (!content) return '';
-    if (typeof content === 'string') return content;
-    if (typeof content === 'object' && content.text) return content.text;
-    if (Array.isArray(content)) {
-        return content
-            .map(part => {
-                if (typeof part === 'string') return part;
-                if (typeof part === 'object' && part.text) return part.text;
-                return JSON.stringify(part);
-            })
-            .join('');
-    }
-    return JSON.stringify(content);
-};
 
 // Routes
 app.get('/', (req, res) => {
@@ -58,7 +40,7 @@ app.post('/chat', upload.single('pdf'), async (req, res) => {
         }
 
         // Get the model
-        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         // Build content array for Gemini
         const contents = [];
@@ -108,8 +90,7 @@ app.post('/chat', upload.single('pdf'), async (req, res) => {
         });
 
         // Safely extract reply text
-        const result = response.response;
-        const aiReply = result.text?.trim() || "I couldn't generate a response. Please try again.";
+        const aiReply = response.response?.text?.() || response.response?.text || "I couldn't generate a response. Please try again.";
 
         res.json({ 
             reply: aiReply,
