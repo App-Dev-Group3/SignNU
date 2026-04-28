@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button';
 import { FileText, CheckCircle, Clock, AlertCircle, TrendingUp, Plus, Bell } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import AIAssistant from '../components/ui/AIAssistant';
 
 export function Dashboard() {
   const { forms, currentUser, notifications, markNotificationRead, deleteForm } = useWorkflow();
@@ -277,6 +278,7 @@ export function Dashboard() {
           </Card>
         </div>
       </div>
+      <AIAssistant />
     </div>
   );
 }
