@@ -1,124 +1,133 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// Initialize Express app
+// =====================
+// App setup
+// =====================
 const app = express();
 const PORT = process.env.CHATBOT_PORT || 5000;
 
+// =====================
 // Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
-}));
+// =====================
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    credentials: true,
+  })
+);
+
 app.use(express.json());
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.urlencoded({ extended: true }));
 
-// In-memory file upload
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+// =====================
+// Multer (in-memory upload)
+// =====================
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+});
 
-// Initialize Gemini AI
+// =====================
+// Gemini AI setup
+// =====================
 const geminiKey = process.env.GEMINI_API_KEY;
+
 if (!geminiKey) {
-  console.warn('⚠️ Warning: GEMINI_API_KEY not found in environment variables');
+  console.warn("⚠️ GEMINI_API_KEY is missing in .env");
 }
 
-const genAI = new GoogleGenerativeAI(geminiKey || '');
-
-// Routes
-app.get('/', (req, res) => {
-    res.json({ status: 'AI Chatbot Backend Running ✅', message: 'Use POST /chat to send messages' });
+const genAI = new GoogleGenerativeAI(geminiKey || "");
+const model = genAI.getGenerativeModel({
+  model: "gemini-2.5-flash",
 });
 
-app.post('/chat', upload.single('pdf'), async (req, res) => {
-    try {
-        const userMessage = req.body.message;
-        if (!userMessage && !req.file) {
-            return res.status(400).json({ error: "Please provide a message or upload a PDF" });
-        }
+// =====================
+// Helper: safe response extraction
+// =====================
+const formatResponseContent = (text) => {
+  if (!text) return "";
+  if (typeof text === "string") return text;
+  return JSON.stringify(text);
+};
 
-        // Get the model
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// =====================
+// Health check route
+// =====================
+app.get("/", (req, res) => {
+  res.json({
+    status: "PDF summary backend running ✅",
+    message: "Use POST /chat to send messages",
+  });
+});
 
-        // Build content array for Gemini
-        const contents = [];
-        
-        if (userMessage) {
-            contents.push({
-                role: "user",
-                parts: [{
-                    text: `You are a helpful AI assistant specialized in digital signatures and form processing. 
-                    Answer the user's question clearly and concisely, focusing on digital signatures, form workflows, and document handling.
-                    User question: ${userMessage}`
-                }]
-            });
-        }
+// =====================
+// POST /chat
+// =====================
+app.post("/chat", upload.single("pdf"), async (req, res) => {
+  try {
+    const userMessage = req.body.message;
 
-        if (req.file) {
-            const base64Data = req.file.buffer.toString("base64");
-            contents.push({
-                role: "user",
-                parts: [{
-                    inlineData: {
-                        mimeType: req.file.mimetype || 'application/pdf',
-                        data: base64Data
-                    }
-                }]
-            });
-            
-            if (userMessage) {
-                contents.push({
-                    role: "user",
-                    parts: [{
-                        text: `Also, please analyze this document in the context of my question: ${userMessage}`
-                    }]
-                });
-            } else {
-                contents.push({
-                    role: "user",
-                    parts: [{
-                        text: "Please analyze this document and provide a summary."
-                    }]
-                });
-            }
-        }
-
-        const response = await model.generateContent({
-            contents: contents
-        });
-
-        // Safely extract reply text
-        const aiReply = response.response?.text?.() || response.response?.text || "I couldn't generate a response. Please try again.";
-
-        res.json({ 
-            reply: aiReply,
-            success: true
-        });
-
-    } catch (error) {
-        console.error('Error in /chat:', error);
-        res.status(500).json({ 
-            error: "Failed to process your request",
-            details: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+    if (!userMessage && !req.file) {
+      return res.status(400).json({ error: "No input provided" });
     }
+
+    // =====================
+    // Build Gemini contents
+    // =====================
+    const parts = [];
+
+    if (userMessage) {
+      parts.push({
+        text: `
+You are a helpful assistant specialized in digital signatures.
+Answer strictly related to digital signature topics.
+
+User message:
+${userMessage}
+        `,
+      });
+    }
+
+    if (req.file) {
+      parts.push({
+        inlineData: {
+          mimeType: req.file.mimetype,
+          data: req.file.buffer.toString("base64"),
+        },
+      });
+    }
+
+    const contents = [
+      {
+        role: "user",
+        parts,
+      },
+    ];
+
+    // =====================
+    // Call Gemini
+    // =====================
+    const result = await model.generateContent({ contents });
+    const response = await result.response;
+
+    const aiReply = formatResponseContent(response.text()) || "No reply from AI";
+
+    return res.json({ reply: aiReply });
+  } catch (error) {
+    console.error("❌ Gemini Error:", error);
+    return res.status(500).json({
+      error: "Failed to get AI response",
+    });
+  }
 });
 
-// Health check
-app.get('/health', (req, res) => {
-    res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
-
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({ error: 'Endpoint not found' });
-});
-
+// =====================
 // Start server
+// =====================
 app.listen(PORT, () => {
-    console.log(`🤖 AI Chatbot Backend running at http://localhost:${PORT}`);
-    console.log(`📝 API endpoint: http://localhost:${PORT}/chat`);
-    console.log(`❤️  Health check: http://localhost:${PORT}/health`);
+  console.log(`🚀 Chatbot backend running at http://localhost:${PORT}`);
 });
