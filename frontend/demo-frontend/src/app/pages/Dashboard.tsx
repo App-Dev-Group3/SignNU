@@ -20,8 +20,9 @@ export function Dashboard() {
   const unreadCount = myNotifications.filter(n => !n.read).length;
   const pendingApprovals = forms.filter(f => 
     f.status === 'pending' && 
-    f.approvalSteps[f.currentStep]?.userId === currentUser.id
+    f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
   );
+  const pendingSubmissions = mySubmissions.filter((f) => f.status === 'pending').length;
 
   const stats = [
     {
@@ -32,11 +33,18 @@ export function Dashboard() {
       bgColor: 'bg-blue-50',
     },
     {
-      title: 'Pending Approvals',
-      value: pendingApprovals.length,
+      title: 'Pending Requests',
+      value: pendingSubmissions,
       icon: Clock,
       color: 'text-orange-600',
       bgColor: 'bg-orange-50',
+    },
+    {
+      title: 'Pending Approvals',
+      value: pendingApprovals.length,
+      icon: Bell,
+      color: 'text-yellow-600',
+      bgColor: 'bg-yellow-50',
     },
     {
       title: 'Approved',

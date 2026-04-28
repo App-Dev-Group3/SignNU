@@ -243,10 +243,10 @@ export function Register() {
                             <SelectValue placeholder="Select department" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="scs">SCS</SelectItem>
-                            <SelectItem value="sabm">SABM</SelectItem>
-                            <SelectItem value="sas">SAS</SelectItem>
-                             <SelectItem value='sea'>SEA</SelectItem>
+                            <SelectItem value="SCS">SCS</SelectItem>
+                            <SelectItem value="SABM">SABM</SelectItem>
+                            <SelectItem value="SAS">SAS</SelectItem>
+                            <SelectItem value="SEA">SEA</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

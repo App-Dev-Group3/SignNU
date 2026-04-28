@@ -1,12 +1,14 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useWorkflow } from '../context/WorkflowContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Separator } from '../components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { PdfEditor, PdfAnnotation } from '../components/PdfEditor';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
@@ -63,6 +65,11 @@ export function FormDetails() {
   const [pdfEditorAnnotations, setPdfEditorAnnotations] = useState<PdfAnnotation[]>([]);
   const [editingAttachmentId, setEditingAttachmentId] = useState<string | null>(null);
   const [isSavingPdfEditor, setIsSavingPdfEditor] = useState(false);
+  const [isChainEditorOpen, setIsChainEditorOpen] = useState(false);
+  const [chainSteps, setChainSteps] = useState<any[]>([]);
+  const [isSavingChain, setIsSavingChain] = useState(false);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [userLoadError, setUserLoadError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
@@ -104,26 +111,28 @@ export function FormDetails() {
   );
   const isCurrentSigner = currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
   const canOpenSignatureDialog = canAddSignature || isCurrentSigner;
+  const canEditPending = currentUser.id === form.submittedById && form.status === 'pending';
   const signatureButtonLabel = isCurrentSigner ? 'Sign & Approve' : 'Add Signature';
   const signatureDialogDescription = isCurrentSigner
     ? 'Sign and approve this document to complete your step.'
     : 'Draw your signature in the box below.';
+  const completedSignaturesCount = form.approvalSteps.filter((step) => step.status === 'approved').length;
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (currentStep) {
-      approveStep(form.id, currentStep.id, comments);
+      await approveStep(form.id, currentStep.id, comments);
       toast.success('Form approved successfully');
       setComments('');
     }
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     if (!comments.trim()) {
       toast.error('Please provide a reason for rejection');
       return;
     }
     if (currentStep) {
-      rejectStep(form.id, currentStep.id, comments);
+      await rejectStep(form.id, currentStep.id, comments);
       toast.error('Form rejected');
       setComments('');
     }
@@ -244,6 +253,7 @@ export function FormDetails() {
         ownerSignature,
         userSignature ?? null,
         pdfEditorAnnotations,
+        editingAttachmentId,
       );
 
       await updateForm(form.id, {
@@ -263,6 +273,126 @@ export function FormDetails() {
       toast.error(error?.message || 'Failed to save signature placement on PDF');
     } finally {
       setIsSavingPdfEditor(false);
+    }
+  };
+
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+
+  const openChainEditor = () => {
+    setChainSteps(form.approvalSteps.map((step) => ({ ...step })));
+    setIsChainEditorOpen(true);
+  };
+
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/users`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Unable to load users: ${res.status} ${text}`);
+        }
+        const data = await res.json();
+        setAvailableUsers(
+          data.map((user: any) => ({
+            id: user._id ?? user.id,
+            name: user.username ?? user.name ?? user.email,
+            role: user.role ?? '',
+          }))
+        );
+        setUserLoadError(null);
+      } catch (error: any) {
+        console.warn('Unable to load approver users:', error);
+        setAvailableUsers([]);
+        setUserLoadError(error.message || 'Unable to load approver users');
+      }
+    };
+
+    loadUsers();
+  }, [API_BASE_URL]);
+
+  const normalizeRole = (role: string) => role.trim().toLowerCase();
+
+  const getApproverOptions = (role: string) => {
+    const target = normalizeRole(role);
+    const exactMatches = availableUsers.filter((user) => normalizeRole(user.role) === target);
+    return exactMatches.length > 0 ? exactMatches : availableUsers;
+  };
+
+  const hasExactApproverForRole = (role: string) =>
+    availableUsers.some((user) => normalizeRole(user.role) === normalizeRole(role));
+
+  const findMatchingUserForRole = (role: string) => {
+    const target = normalizeRole(role);
+    return availableUsers.find((user) => normalizeRole(user.role) === target) ?? null;
+  };
+
+  const updateChainStepRole = (index: number, role: string) => {
+    const matchedUser = findMatchingUserForRole(role);
+    setChainSteps((prev) => prev.map((step, idx) => {
+      if (idx !== index) return step;
+      return {
+        ...step,
+        role,
+        userId: matchedUser?.id || step.userId,
+        userName: matchedUser?.name || step.userName,
+      };
+    }));
+  };
+
+  const updateChainStep = (index: number, key: string, value: string) => {
+    setChainSteps((prev) => prev.map((step, idx) => (idx === index ? { ...step, [key]: value } : step)));
+  };
+
+  const handleApproverChange = (index: number, userId: string) => {
+    const user = availableUsers.find((item) => item.id === userId);
+    if (!user) return;
+
+    setChainSteps((prev) => prev.map((step, idx) => {
+      if (idx !== index) return step;
+      return {
+        ...step,
+        userId: user.id,
+        userName: user.name,
+      };
+    }));
+  };
+
+  const addChainStep = () => {
+    setChainSteps((prev) => [
+      ...prev,
+      {
+        id: `step-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        role: '',
+        userId: '',
+        userName: '',
+        status: 'pending',
+      },
+    ]);
+  };
+
+  const removeChainStep = (index: number) => {
+    setChainSteps((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const saveChainSteps = async () => {
+    if (chainSteps.length === 0) {
+      toast.error('Approval chain must contain at least one step.');
+      return;
+    }
+
+    setIsSavingChain(true);
+    try {
+      await updateForm(form.id, { approvalSteps: chainSteps });
+      toast.success('Approval chain updated successfully');
+      setIsChainEditorOpen(false);
+    } catch (error) {
+      console.error('Unable to update approval chain:', error);
+      toast.error('Failed to update approval chain');
+    } finally {
+      setIsSavingChain(false);
     }
   };
 
@@ -369,24 +499,35 @@ export function FormDetails() {
   };
   */
 
-  const handleSendNudge = () => {
-    sendNudge(form.id);
-    toast.success('Nudge sent successfully');
+  const canSendNudge = form.submittedById === currentUser.id || currentUser.role === 'Admin';
+
+  const handleSendNudge = async () => {
+    if (!canSendNudge) {
+      toast.error('Only the request owner or an admin can send a nudge');
+      return;
+    }
+
+    await sendNudge(form.id);
   };
 
-  const handleDeleteDraft = async () => {
-    if (form.status !== 'draft' || form.submittedById !== currentUser.id) return;
+  const handleDeleteRequest = async () => {
+    if ((form.status !== 'draft' && form.status !== 'pending') || form.submittedById !== currentUser.id) return;
 
-    const confirmed = window.confirm('Delete this draft? This action cannot be undone.');
+    const confirmMessage =
+      form.status === 'draft'
+        ? 'Delete this draft? This action cannot be undone.'
+        : 'Delete this pending request? This action cannot be undone.';
+
+    const confirmed = window.confirm(confirmMessage);
     if (!confirmed) return;
 
     try {
       await deleteForm(form.id);
-      toast.success('Draft deleted successfully');
+      toast.success(form.status === 'draft' ? 'Draft deleted successfully' : 'Pending request deleted successfully');
       navigate('/submissions');
     } catch (error) {
-      console.error('Delete draft failed:', error);
-      toast.error('Unable to delete draft');
+      console.error('Delete request failed:', error);
+      toast.error('Unable to delete request');
     }
   };
 
@@ -575,6 +716,13 @@ export function FormDetails() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {canEditPending && (
+                  <div className="mb-4 flex justify-end">
+                    <Button variant="secondary" size="sm" onClick={openChainEditor}>
+                      Edit Approval Chain
+                    </Button>
+                  </div>
+                )}
                 {form.attachments.length === 0 ? (
                   <p className="text-sm text-gray-500">No attachments available.</p>
                 ) : (
@@ -597,6 +745,15 @@ export function FormDetails() {
                                 >
                                   {isLoadingPdf ? 'Loading...' : 'View PDF'}
                                 </Button>
+                                {canEditPending && (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => openPdfEditorForAttachment(att)}
+                                  >
+                                    Edit PDF
+                                  </Button>
+                                )}
                                 {canOpenSignatureDialog && (
                                   <Button
                                     variant="secondary"
@@ -698,6 +855,84 @@ export function FormDetails() {
               </DialogContent>
             </Dialog>
 
+            <Dialog open={isChainEditorOpen} onOpenChange={(open) => setIsChainEditorOpen(open)}>
+              <DialogContent className="sm:max-w-4xl max-w-full h-[calc(100vh-5rem)] overflow-auto p-0">
+                <div className="flex h-full flex-col bg-white">
+                  <DialogHeader className="px-6 py-4 border-b">
+                    <DialogTitle>Edit Approval Chain</DialogTitle>
+                    <DialogDescription>
+                      Update the pending approval steps for this request.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex-1 overflow-auto p-4">
+                    <div className="space-y-4">
+                      {userLoadError && (
+                        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                          {userLoadError}
+                        </div>
+                      )}
+                      {chainSteps.map((step, index) => (
+                        <div key={step.id} className="rounded-lg border border-gray-200 p-4">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div>
+                              <Label htmlFor={`chain-role-${index}`}>Role</Label>
+                              <Input
+                                id={`chain-role-${index}`}
+                                value={step.role}
+                                onChange={(e) => updateChainStepRole(index, e.target.value)}
+                                placeholder="Role name (e.g. Department Head)"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`chain-approver-${index}`}>Approver</Label>
+                              <Select value={step.userId} onValueChange={(value) => handleApproverChange(index, value)}>
+                                <SelectTrigger className="h-11">
+                                  <SelectValue placeholder="Select approver" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {getApproverOptions(step.role).map((user) => (
+                                    <SelectItem key={user.id} value={user.id}>
+                                      {user.name} {user.role ? `(${user.role})` : ''}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => removeChainStep(index)}
+                              disabled={chainSteps.length <= 1}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                          {!hasExactApproverForRole(step.role) && step.role.trim() && (
+                            <p className="text-xs text-orange-600 mt-2">
+                              No exact approver role found for "{step.role}". Select an approver manually.
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                      <Button variant="secondary" onClick={addChainStep}>
+                        Add Step
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="border-t p-4 flex gap-2 justify-end">
+                    <Button variant="outline" onClick={() => setIsChainEditorOpen(false)}>
+                      Close
+                    </Button>
+                    <Button onClick={saveChainSteps} disabled={isSavingChain}>
+                      {isSavingChain ? 'Saving…' : 'Save Chain'}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
             {/* Approval Actions */}
             {canApprove && (
               <Card>
@@ -731,90 +966,6 @@ export function FormDetails() {
               </Card>
             )}
 
-            {/* Signatures */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Electronic Signatures</CardTitle>
-                  {canOpenSignatureDialog && (
-                    <Dialog open={isSignatureDialogOpen} onOpenChange={setIsSignatureDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          <PenTool className="w-4 h-4 mr-2" />
-                          {signatureButtonLabel}
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-md">
-                        <DialogHeader>
-                          <DialogTitle>{signatureButtonLabel}</DialogTitle>
-                          <DialogDescription>
-                            {signatureDialogDescription}
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4">
-                          <div className="border-2 border-gray-300 rounded-lg">
-                            <canvas
-                              ref={canvasRef}
-                              width={400}
-                              height={200}
-                              onMouseDown={startDrawing}
-                              onMouseMove={draw}
-                              onMouseUp={stopDrawing}
-                              onMouseLeave={stopDrawing}
-                              className="w-full cursor-crosshair"
-                              style={{ touchAction: 'none' }}
-                            />
-                          </div>
-                          <div className="flex gap-2">
-                            <Button onClick={clearSignature} variant="outline" className="flex-1">
-                              Clear
-                            </Button>
-                            <Button onClick={saveSignature} className="flex-1">
-                              Save Signature
-                            </Button>
-                          </div>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                {form.signatures.filter((sig) => sig.userId === currentUser.id).length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-8">No personal signatures yet</p>
-                ) : (
-                  <div className="space-y-4">
-                    {form.signatures
-                      .filter((sig) => sig.userId === currentUser.id)
-                      .map((sig) => (
-                        <div key={sig.id} className="p-4 bg-gray-50 rounded-lg">
-                          <div className="flex items-start justify-between mb-3 gap-4">
-                            <div>
-                              <p className="font-medium text-gray-900">{sig.userName}</p>
-                              <p className="text-sm text-gray-600">{sig.role}</p>
-                            </div>
-                            <p className="text-xs text-gray-500">
-                              {format(new Date(sig.signedAt), 'MMM d, yyyy h:mm a')}
-                            </p>
-                          </div>
-                          <div className="border border-gray-200 rounded bg-white p-2 mb-4">
-                            <img src={sig.signature} alt={`${sig.userName}'s signature`} className="h-16" />
-                          </div>
-                          <div className="flex justify-end">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => removeSignature(form.id, sig.id)}
-                            >
-                              Remove signature
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </div>
 
           {/* Sidebar */}
@@ -903,7 +1054,7 @@ export function FormDetails() {
                 <Separator />
                 <div>
                   <p className="text-gray-600 mb-1">Signatures</p>
-                  <p className="font-medium">{form.signatures.length} collected</p>
+                  <p className="font-medium">{completedSignaturesCount} collected</p>
                 </div>
               </CardContent>
             </Card>
@@ -920,10 +1071,12 @@ export function FormDetails() {
                   Generate QR Code
                 </Button>
                 */}
-                <Button onClick={handleSendNudge} variant="outline" size="sm">
-                  <Bell className="w-4 h-4 mr-2" />
-                  Send Nudge
-                </Button>
+                {form.status !== 'approved' && canSendNudge && (
+                  <Button onClick={handleSendNudge} variant="outline" size="sm">
+                    <Bell className="w-4 h-4 mr-2" />
+                    Send Nudge
+                  </Button>
+                )}
                 <Button onClick={handleGenerateAISummary} variant="outline" size="sm">
                   <Sparkles className="w-4 h-4 mr-2" />
                   Generate AI Summary
@@ -932,10 +1085,10 @@ export function FormDetails() {
                   <Download className="w-4 h-4 mr-2" />
                   Download PDF
                 </Button>
-                {form.status === 'draft' && form.submittedById === currentUser.id && (
-                  <Button onClick={handleDeleteDraft} variant="destructive" size="sm">
+                {(form.status === 'draft' || form.status === 'pending') && form.submittedById === currentUser.id && (
+                  <Button onClick={handleDeleteRequest} variant="destructive" size="sm">
                     <XCircle className="w-4 h-4 mr-2" />
-                    Delete Draft
+                    {form.status === 'draft' ? 'Delete Draft' : 'Delete Request'}
                   </Button>
                 )}
               </CardContent>
