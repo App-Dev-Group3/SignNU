@@ -18,6 +18,8 @@ const generateToken = (user) => {
             id: user._id,
             email: user.email,
             role: user.role,
+            username: user.username,
+            name: user.username,
         },
         process.env.JWT_SECRET || 'secret123',
         { expiresIn: '1h' }
@@ -87,6 +89,8 @@ const createUser = async (req, res) => {
             id: user._id.toString(),
             email: user.email,
             role: user.role,
+            username: user.username,
+            name: user.username,
         };
 
         res.cookie('auth_token', token, {
@@ -124,6 +128,8 @@ const loginUser = async (req, res) => {
             id: user._id.toString(),
             email: user.email,
             role: user.role,
+            username: user.username,
+            name: user.username,
         };
 
         res.cookie('auth_token', token, {
@@ -255,6 +261,35 @@ const requestPasswordReset = async (req, res) => {
         res.status(200).json({ message: 'If that email exists, a password reset link has been sent.' });
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+};
+
+const testSendEmail = async (req, res) => {
+    const { email, subject, html, text } = req.body;
+    if (!email) {
+        return res.status(400).json({ error: 'Email is required.' });
+    }
+
+    if (!resendClient) {
+        return res.status(500).json({ error: 'Resend API key is not configured.' });
+    }
+
+    try {
+        const sendResponse = await resendClient.emails.send({
+            from: EMAIL_FROM,
+            to: [email],
+            subject: subject || 'SignNU Test Email',
+            html: html || '<strong>This is a SignNU test email.</strong>',
+            text: text || 'This is a SignNU test email.',
+        });
+
+        return res.status(200).json({ success: true, response: sendResponse });
+    } catch (error) {
+        console.error('Test send email failed:', error);
+        return res.status(error?.statusCode || 500).json({
+            error: error?.message || 'Failed to send test email.',
+            details: error,
+        });
     }
 };
 
@@ -582,6 +617,7 @@ module.exports = {
     logoutUser,
     changePassword,
     requestPasswordReset,
+    testSendEmail,
     resetPassword,
     getUserNotifications,
     addUserNotification,

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { useWorkflow } from '../context/WorkflowContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -10,6 +11,7 @@ import AIAssistant from '../components/ui/AIAssistant';
 
 export function Dashboard() {
   const { forms, currentUser, notifications, markNotificationRead, deleteForm } = useWorkflow();
+  const [notificationsExpanded, setNotificationsExpanded] = useState(false);
 
   if (!currentUser) {
     return null;
@@ -112,7 +114,7 @@ export function Dashboard() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8 items-start">
           {stats.map((stat) => {
             const Icon = stat.icon;
             return (
@@ -141,9 +143,14 @@ export function Dashboard() {
                     <CardDescription>Web approval alerts</CardDescription>
                   </div>
                 </div>
-                <Badge variant={unreadCount > 0 ? 'secondary' : 'default'}>
-                  {unreadCount} unread
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={unreadCount > 0 ? 'secondary' : 'default'}>
+                    {unreadCount} unread
+                  </Badge>
+                  <Button variant="outline" size="sm" onClick={() => setNotificationsExpanded(true)}>
+                    View all
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -151,7 +158,7 @@ export function Dashboard() {
                 <p className="text-sm text-gray-500">No notifications yet.</p>
               ) : (
                 <div className="space-y-3">
-                  {myNotifications.slice(0, 5).map((notification) => (
+                  {myNotifications.slice(0, 1).map((notification) => (
                     <div
                       key={notification.id}
                       className={`p-3 rounded-lg border ${notification.read ? 'border-gray-200 bg-gray-50' : 'border-blue-200 bg-blue-50'}`}
@@ -181,8 +188,42 @@ export function Dashboard() {
           </Card>
         </div>
 
+        {notificationsExpanded && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
+            <div className="w-full max-w-3xl overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">All Notifications</h2>
+                  <p className="text-sm text-gray-500">{myNotifications.length} notification{myNotifications.length === 1 ? '' : 's'}</p>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => setNotificationsExpanded(false)}>
+                  Close
+                </Button>
+              </div>
+              <div className="max-h-[70vh] overflow-y-auto p-6 space-y-3">
+                {myNotifications.length === 0 ? (
+                  <p className="text-sm text-gray-500">No notifications yet.</p>
+                ) : (
+                  myNotifications.map((notification) => (
+                    <div
+                      key={notification.id}
+                      className={`p-4 rounded-2xl border ${notification.read ? 'border-gray-200 bg-gray-50' : 'border-blue-200 bg-blue-50'}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm text-gray-800">{notification.message}</p>
+                        {!notification.read && <Badge variant="default">New</Badge>}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">{new Date(notification.createdAt).toLocaleString()}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Recent Activity */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* Recent Forms */}
           <Card>
             <CardHeader>
