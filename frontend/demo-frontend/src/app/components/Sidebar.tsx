@@ -6,7 +6,8 @@ import {
   FileCheck,
   School,
   LogOut,
-  Settings
+  Settings,
+  MessageSquare,
 } from 'lucide-react';
 import { useWorkflow } from '../context/WorkflowContext';
 import { Button } from './ui/button';
@@ -28,6 +29,7 @@ export function Sidebar() {
   const navItems = [
     ...(currentUser.role === 'Admin' ? [] : [{ path: '/', icon: LayoutDashboard, label: 'Dashboard' }]),
     { path: '/new-form', icon: FileText, label: 'New Form' },
+    { path: '/messages', icon: MessageSquare, label: 'Messages' },
     { path: '/submissions', icon: FileCheck, label: 'My Submissions' },
     { path: '/approvals', icon: CheckSquare, label: 'Approval Queue' },
     { path: '/account-settings', icon: Settings, label: 'Account Settings' },

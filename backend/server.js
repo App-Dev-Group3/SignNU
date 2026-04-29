@@ -6,6 +6,7 @@ const session = require('express-session');
 const approvalRoutes = require('./routes/route');
 const userRoutes = require('./routes/userRoutes');
 const formRoutes = require('./routes/formRoutes');
+const messageRoutes = require('./routes/messageRoutes');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const app = express();
@@ -55,6 +56,7 @@ app.use((req, res, next) => {
 app.use('/api/approvals', approvalRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/forms', formRoutes);
+app.use('/api/messages', messageRoutes);
 
 // 4. Base Route
 app.get('/', (req, res) => {

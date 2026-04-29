@@ -57,6 +57,8 @@ const FormSchema = new Schema({
   generatedPdfURL: { type: String },
   currentStep: { type: Number, default: 0 },
   lastNudgedAt: { type: String },
+  lastRequesterNudgedAt: { type: String },
+  lastAdminNudgedAt: { type: String },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 module.exports = mongoose.model('Form', FormSchema);

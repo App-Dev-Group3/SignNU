@@ -156,7 +156,7 @@ interface WorkflowContextType {
 
   addSignatureMarker: (formId: string, marker: Omit<SignatureMarker, 'id'>) => void;
 
-  sendNudge: (formId: string) => void;
+  sendNudge: (formId: string) => Promise<void>;
 
   generateAISummary: (formId: string) => Promise<void>;
 
@@ -666,43 +666,41 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     const form = forms.find((f) => f.id === formId);
     if (!form || !currentUser) return;
 
-    const pendingApprovers = form.approvalSteps.filter((step) => step.status === 'pending');
     if (form.submittedById !== currentUser.id && currentUser.role !== 'Admin') {
       toast.error('Only the request owner or an admin can send a nudge');
       return;
     }
 
-    if (pendingApprovers.length === 0) {
-      toast.error('No pending approvers to nudge');
-      return;
-    }
-
     try {
-      await Promise.all(
-        pendingApprovers.map((step) =>
-          authFetch(`${API_BASE_URL}/api/users/${step.userId}/notifications`, {
-            method: 'POST',
-            body: JSON.stringify({
-              formId: form.id,
-              userId: step.userId,
-              message: `${currentUser.name} has nudged you to review the pending request "${form.title}".`,
-            }),
-          })
-        )
-      );
+      const response = await authFetch(`${API_BASE_URL}/api/forms/${formId}/nudge`, {
+        method: 'POST',
+      });
 
-      setForms((prev) =>
-        prev.map((f) =>
-          f.id === formId
-            ? {
-                ...f,
-                lastNudgedAt: new Date().toISOString(),
-              }
-            : f
-        )
-      );
+      const data = await response.json();
+      if (!response.ok) {
+        console.error('Send nudge failed:', data);
+        toast.error(data.error || 'Unable to send nudge');
+        return;
+      }
 
-      toast.success('Nudge sent to pending approvers');
+      if (data.form) {
+        setForms((prev) =>
+          prev.map((f) => (f.id === formId ? { ...f, ...data.form } : f))
+        );
+      } else {
+        setForms((prev) =>
+          prev.map((f) =>
+            f.id === formId
+              ? {
+                  ...f,
+                  lastNudgedAt: new Date().toISOString(),
+                }
+              : f
+          )
+        );
+      }
+
+      toast.success(data.message || 'Nudge sent to pending approvers');
     } catch (error) {
       console.error('Nudge failed:', error);
       toast.error('Unable to send nudge');

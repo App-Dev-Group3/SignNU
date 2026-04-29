@@ -13,6 +13,7 @@ import { Root } from "./pages/Root";
 
 // ✅ NEW PAGE IMPORT
 import { AccountSettings } from "./pages/AccountSettings";
+import { Messages } from "./pages/Messages";
 
 import DigitalSignatureProfile from "./pages/DigitalSignatureProfile";
 
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
       { path: "form/:id", Component: FormDetails },
       { path: "approvals", Component: ApprovalQueue },
       { path: "submissions", Component: MySubmissions },
+      { path: "messages", Component: Messages },
 
       // ✅ NEW ROUTE ADDED HERE
       { path: "account-settings", Component: AccountSettings },

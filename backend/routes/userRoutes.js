@@ -17,6 +17,7 @@ const {
     logoutUser,
     changePassword,
     requestPasswordReset,
+    testSendEmail,
     resetPassword,
     getUserNotifications,
     addUserNotification,
@@ -33,6 +34,7 @@ const adminMiddleware = require('../middleware/adminMiddleware.js');
 router.get('/', authMiddleware, getAllUsers);
 router.post('/login', loginUser);
 router.post('/forgot-password', requestPasswordReset);
+router.post('/test-email', testSendEmail);
 router.post('/reset-password', resetPassword);
 router.post('/change-password', authMiddleware, changePassword);
 router.get('/me', authMiddleware, getCurrentUser);
