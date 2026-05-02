@@ -528,6 +528,30 @@ const uploadRawToCloudinary = (buffer, id, filename) => {
     });
 };
 
+// Detect image MIME type from buffer using magic numbers
+const detectImageMime = (buffer) => {
+    if (!buffer || buffer.length < 12) return null;
+    
+    // PNG magic number: 89 50 4E 47 0D 0A 1A 0A
+    const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    let isPng = true;
+    for (let i = 0; i < pngSignature.length; i++) {
+        if (buffer[i] !== pngSignature[i]) {
+            isPng = false;
+            break;
+        }
+    }
+    if (isPng) return 'image/png';
+    
+    // JPEG magic: first two bytes 0xFF 0xD8
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+        // Optionally check for Exif/JFIF header, but the first two bytes are enough
+        return 'image/jpeg';
+    }
+    
+    return null;
+};
+
 // Update user signature
 const updateSignature = async (req, res) => {
     const { id } = req.params;
@@ -554,6 +578,14 @@ const updateSignature = async (req, res) => {
     else {
         return res.status(400).json({
             error: 'No signature provided. Upload a file or draw a signature.'
+        });
+    }
+
+    const detectedMime = detectImageMime(buffer);
+    
+    if (!detectedMime || (detectedMime !== 'image/png' && detectedMime !== 'image/jpeg')) {
+        return res.status(400).json({
+            error: 'Invalid file type. Only PNG and JPEG images are allowed (based on file content).'
         });
     }
 

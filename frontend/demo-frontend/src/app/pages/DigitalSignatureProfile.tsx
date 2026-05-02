@@ -96,7 +96,7 @@ function UploadSignature( { onFileChange, onFileData }: {
 
     return (
         <div style={{ padding: "20px" }}>
-            <input type="file" accept="image/*" onChange={previewSignature} ref={inputRef} />
+            <input type="file" accept="image/png, image/jpeg" onChange={previewSignature} ref={inputRef} />
             <button onClick={clearFile}>Clear File</button>
 
             {preview && (
