@@ -14,19 +14,6 @@ import { PdfEditor, PdfAnnotation } from '../components/PdfEditor';
 
 const formTypes: FormType[] = ['ACP', 'Meal Request', 'RI', 'RFP', 'Item Request'];
 
-const approvalRoleOptions = [
-  'Department Head',
-  'Dean',
-  'Faculty',
-  'Staff',
-  'Finance Officer',
-  'Procurement Officer',
-  'VP for Academics',
-  'VP for Finance',
-];
-
-const approvalDepartmentOptions = ['SCS', 'SABM', 'SAS', 'SEA'];
-
 const approvalChains: Record<FormType, Array<{ role: string; userId: string; userName: string }>> = {
   'ACP': [
     { role: 'Department Head', userId: 'user-1', userName: 'Juan Dela Cruz' },
@@ -66,6 +53,21 @@ export function NewForm() {
   const formIdRef = useRef(`form-${Date.now()}`);
   const [formType, setFormType] = useState<FormType | ''>('');
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [attachments, setAttachments] = useState<Array<{ id?: string; name: string; size: number; type: string; url?: string }>>([]);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string; department?: string }>>([]);
+  const [approvalRoleOptions, setApprovalRoleOptions] = useState<string[]>([]);
+  const [approvalDepartmentOptions, setApprovalDepartmentOptions] = useState<string[]>([]);
+  const [approvalSteps, setApprovalSteps] = useState<Array<{ id?: string; role: string; department: string; userId: string; userName: string }>>([]);
+  const [userLoadError, setUserLoadError] = useState<string | null>(null);
+  const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
+  const [pdfAnnotations, setPdfAnnotations] = useState<PdfAnnotation[]>([]);
+  const [showPdfEditor, setShowPdfEditor] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [generatedPdfUrl, setGeneratedPdfUrl] = useState('');
+  const [draftCreated, setDraftCreated] = useState(false);
+
   const isValidUrl = (value: string | undefined | null) => {
     if (!value) return false;
     try {
@@ -75,18 +77,6 @@ export function NewForm() {
       return false;
     }
   };
-  const [description, setDescription] = useState('');
-  const [formData, setFormData] = useState<Record<string, any>>({});
-  const [attachments, setAttachments] = useState<Array<{ id?: string; name: string; size: number; type: string; url?: string }>>([]);
-  const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string; department?: string }>>([]);
-  const [approvalSteps, setApprovalSteps] = useState<Array<{ id?: string; role: string; department: string; userId: string; userName: string }>>([]);
-  const [userLoadError, setUserLoadError] = useState<string | null>(null);
-  const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
-  const [pdfAnnotations, setPdfAnnotations] = useState<PdfAnnotation[]>([]);
-  const [showPdfEditor, setShowPdfEditor] = useState(false);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  const [generatedPdfUrl, setGeneratedPdfUrl] = useState('');
-  const [draftCreated, setDraftCreated] = useState(false);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -102,16 +92,36 @@ export function NewForm() {
           throw new Error(`Failed to load approvers: ${response.status} ${errorText}`);
         }
         const fetchedUsers = await response.json();
-        setAvailableUsers(
-          fetchedUsers
-            .map((user: any) => ({
-              id: user._id || user.id,
-              name: user.username || user.name || user.email,
-              role: user.role,
-              department: user.department,
-            }))
-            .filter((user: { role: string }) => user.role !== 'Student')
-        );
+        const processedUsers = fetchedUsers
+          .map((user: any) => ({
+            id: user._id || user.id,
+            name: user.username || user.name || user.email,
+            role: user.role,
+            department: user.department,
+          }))
+          .filter((user: { role: string }) => user.role !== 'Student');
+        
+        setAvailableUsers(processedUsers);
+
+        // Extract unique roles and departments from available users
+        const uniqueRoles = Array.from(
+          new Set(
+            processedUsers
+              .map((u: any) => u.role)
+              .filter((r: string) => r && r.trim())
+          )
+        ).sort() as string[];
+
+        const uniqueDepartments = Array.from(
+          new Set(
+            processedUsers
+              .map((u: any) => u.department)
+              .filter((d: string) => d && d.trim())
+          )
+        ).sort() as string[];
+
+        setApprovalRoleOptions(uniqueRoles);
+        setApprovalDepartmentOptions(uniqueDepartments);
         setUserLoadError(null);
       } catch (error: any) {
         console.error('Error loading approvers:', error);
@@ -325,43 +335,39 @@ export function NewForm() {
     const targetRole = normalizeRole(role);
     const targetDepartment = normalizeDepartment(department);
 
-    const exactMatch = availableUsers.find((user) =>
-      normalizeRole(user.role) === targetRole &&
-      (!targetDepartment || normalizeDepartment(user.department || '') === targetDepartment)
-    );
-
-    if (exactMatch) {
-      return exactMatch;
+    // Strict matching: must match both role AND department, no fallback
+    if (!targetRole.trim() || !targetDepartment.trim()) {
+      return null;
     }
 
-    return availableUsers.find((user) => normalizeRole(user.role) === targetRole) ?? null;
+    return availableUsers.find((user) =>
+      normalizeRole(user.role) === targetRole &&
+      normalizeDepartment(user.department || '') === targetDepartment
+    ) ?? null;
   };
 
   const getApproverOptions = (role: string, department: string) => {
+    // Strict matching: must match both role AND department, no fallback
     if (!role.trim() || !department.trim()) {
       return [];
     }
 
     const targetRole = normalizeRole(role);
     const targetDepartment = normalizeDepartment(department);
-    const exactMatches = availableUsers.filter((user) =>
+
+    return availableUsers.filter((user) =>
       normalizeRole(user.role) === targetRole &&
-      (!targetDepartment || normalizeDepartment(user.department || '') === targetDepartment)
+      normalizeDepartment(user.department || '') === targetDepartment
     );
-
-    if (exactMatches.length > 0) {
-      return exactMatches;
-    }
-
-    const roleMatches = availableUsers.filter((user) => normalizeRole(user.role) === targetRole);
-    return roleMatches.length > 0 ? roleMatches : availableUsers;
   };
 
-  const hasExactApproverForStep = (role: string, department: string) =>
-    availableUsers.some((user) =>
+  const hasExactApproverForStep = (role: string, department: string) => {
+    if (!role.trim() || !department.trim()) return false;
+    return availableUsers.some((user) =>
       normalizeRole(user.role) === normalizeRole(role) &&
       normalizeDepartment(user.department || '') === normalizeDepartment(department)
     );
+  };
 
   const buildApprovalSteps = (type: FormType) => {
     return approvalChains[type].map((step, index) => {
@@ -378,14 +384,16 @@ export function NewForm() {
 
   const updateApprovalStepRole = (index: number, role: string) => {
     const currentDepartment = approvalSteps[index]?.department || '';
+    // Clear user selection when role changes, as user must match both role AND department
     const matchedUser = findMatchingUserForStep(role, currentDepartment);
     setApprovalSteps((prev) => prev.map((step, idx) => {
       if (idx !== index) return step;
       return {
         ...step,
         role,
-        userId: matchedUser?.id || step.userId,
-        userName: matchedUser?.name || step.userName,
+        // Clear user if no match for new role+department combination
+        userId: matchedUser?.id || '',
+        userName: matchedUser?.name || '',
       };
     }));
   };
@@ -398,8 +406,9 @@ export function NewForm() {
       return {
         ...step,
         department,
-        userId: matchedUser?.id || step.userId,
-        userName: matchedUser?.name || step.userName,
+        // Clear user if no match for new role+department combination
+        userId: matchedUser?.id || '',
+        userName: matchedUser?.name || '',
       };
     }));
   };

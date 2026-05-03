@@ -26,6 +26,8 @@ const {
     updatePdf,
     deleteUser,
     getApproverUsers,
+    getAvailableRoles,
+    getAvailableDepartments,
 } = require('../controllers/userController.js');
 
 const authMiddleware = require('../middleware/authMiddleware.js');
@@ -64,6 +66,8 @@ router.post('/reset-password', resetPassword);
 router.post('/change-password', authMiddleware, changePassword);
 router.get('/me', authMiddleware, getCurrentUser);
 router.get('/approvers', authMiddleware, getApproverUsers);
+router.get('/roles', authMiddleware, getAvailableRoles);
+router.get('/departments', authMiddleware, getAvailableDepartments);
 router.post('/logout', authMiddleware, logoutUser);
 
 // ======================

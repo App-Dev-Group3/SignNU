@@ -724,6 +724,30 @@ const deleteUser = async (req, res) => {
     }
 };
 
+const getAvailableRoles = async (_req, res) => {
+    try {
+        const roles = await User.distinct('role', { isApproved: true });
+        const filteredRoles = roles
+            .filter(role => role && role.trim() && role !== 'Student')
+            .sort();
+        res.status(200).json(filteredRoles);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const getAvailableDepartments = async (_req, res) => {
+    try {
+        const departments = await User.distinct('department', { isApproved: true });
+        const filteredDepartments = departments
+            .filter(dept => dept && dept.trim())
+            .sort();
+        res.status(200).json(filteredDepartments);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     getAllUsers,
     getUserById,
@@ -744,4 +768,6 @@ module.exports = {
     updatePdf,
     deleteUser,
     getApproverUsers,
+    getAvailableRoles,
+    getAvailableDepartments,
 };
