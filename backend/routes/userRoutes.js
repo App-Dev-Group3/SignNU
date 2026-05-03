@@ -35,7 +35,11 @@ const adminMiddleware = require('../middleware/adminMiddleware.js');
 // ======================
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5,
+    max: 20,
+    skip: (req) => {
+        const ip = req.ip || '';
+        return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    },
     message: {
         error: "Too many requests. Please try again after 15 minutes."
     },
@@ -48,6 +52,7 @@ const authLimiter = rateLimit({
 // ======================
 router.post('/login', authLimiter, loginUser);
 router.post('/', authLimiter, createUser);
+router.post('/request-account', authLimiter, createUser);
 router.post('/forgot-password', authLimiter, requestPasswordReset);
 
 // ======================
@@ -105,6 +110,7 @@ router.patch('/:id/notifications/:notificationId', authMiddleware, updateUserNot
 // ======================
 // USER MANAGEMENT
 // ======================
+router.get('/', authMiddleware, adminMiddleware, getAllUsers);
 router.get('/:id', authMiddleware, getUserById);
 router.patch('/:id', authMiddleware, updateUser);
 router.patch('/:id/role', authMiddleware, adminMiddleware, updateUserRole);

@@ -27,12 +27,16 @@ export function Login() {
 
     setIsLoading(true);
 
-    const success = await login(email, password);
-    if (success) {
+    const result = await login(email, password);
+    if (result.success) {
       toast.success('Login successful!');
       navigate('/');
     } else {
-      toast.error('Invalid email or password');
+      if (result.pending) {
+        toast.error(result.message || 'Email is pending admin approval');
+      } else {
+        toast.error(result.message || 'Invalid email or password');
+      }
     }
 
     setIsLoading(false);

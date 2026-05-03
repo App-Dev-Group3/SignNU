@@ -11,6 +11,9 @@ const NotificationSchema = new Schema({
 }, { _id: false });
 
 const userSchema = new Schema({
+  firstName: { type: String, required: true },
+  middleInitial: { type: String, trim: true },
+  lastName: { type: String, required: true },
   username: { type: String, required: true, unique: true },
   email: {
     type: String,

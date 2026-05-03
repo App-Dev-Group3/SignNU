@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const { Resend } = require('resend');
 const User = require('../models/user.js');
+const AccountRequest = require('../models/accountRequest.js');
 const cloudinary = require('cloudinary').v2;
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -64,43 +65,86 @@ const getUserById = async (req, res) => {
 
 // Create a new user
 const createUser = async (req, res) => {
-    const { username, email, password, role, department, notifications } = req.body;
+    const { firstName, middleInitial, mi, lastName, username, email, password, role, department, notifications } = req.body;
     try {
-        const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
+        const normalizedEmail = email.toLowerCase().trim();
+        const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) {
             return res.status(400).json({ error: 'Email already exists' });
         }
 
+        const existingRequest = await AccountRequest.findOne({ email: normalizedEmail });
+        if (existingRequest && existingRequest.status === 'pending') {
+            return res.status(409).json({
+                error: 'Email is pending admin approval',
+                pending: true,
+            });
+        }
+        if (existingRequest && existingRequest.status === 'approved') {
+            return res.status(400).json({ error: 'Email already exists' });
+        }
+
+        const normalizedFirstName = (firstName || '').trim();
+        const normalizedLastName = (lastName || '').trim();
+        const normalizedMi = (middleInitial ?? mi ?? '').toString().trim();
+
+        if (!normalizedFirstName || !normalizedLastName) {
+            return res.status(400).json({ error: 'First name and last name are required' });
+        }
+
+        const fullName = username || [normalizedFirstName, normalizedLastName, normalizedMi]
+          .filter((part) => part && part.toString().trim().length > 0)
+          .join(' ');
+
         const hashedPassword = await bcrypt.hash(password, 10);
-        const user = await User.create({
-            username,
-            email: email.toLowerCase().trim(),
+
+        if (existingRequest && existingRequest.status === 'rejected') {
+            existingRequest.firstName = normalizedFirstName;
+            existingRequest.middleInitial = normalizedMi;
+            existingRequest.lastName = normalizedLastName;
+            existingRequest.username = fullName;
+            existingRequest.password = hashedPassword;
+            existingRequest.role = role;
+            existingRequest.department = department;
+            existingRequest.status = 'pending';
+            existingRequest.reviewedBy = undefined;
+            existingRequest.reviewedAt = undefined;
+            existingRequest.reviewNote = undefined;
+            await existingRequest.save();
+
+            return res.status(201).json({
+                message: 'Account request submitted and pending admin approval',
+                pending: true,
+                request: {
+                    id: existingRequest._id,
+                    email: existingRequest.email,
+                    status: existingRequest.status,
+                },
+            });
+        }
+
+        const request = await AccountRequest.create({
+            firstName: normalizedFirstName,
+            middleInitial: normalizedMi,
+            lastName: normalizedLastName,
+            username: fullName,
+            email: normalizedEmail,
             password: hashedPassword,
             role,
             department,
             notifications,
+            status: 'pending',
         });
 
-        const safeUser = user.toObject();
-        delete safeUser.password;
-
-        const token = generateToken(user);
-        req.session.user = {
-            id: user._id.toString(),
-            email: user.email,
-            role: user.role,
-            username: user.username,
-            name: user.username,
-        };
-
-        res.cookie('auth_token', token, {
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === 'production',
-            maxAge: 60 * 60 * 1000, // 1 hour
+        return res.status(201).json({
+            message: 'Account request submitted and pending admin approval',
+            pending: true,
+            request: {
+                id: request._id,
+                email: request.email,
+                status: request.status,
+            },
         });
-
-        res.status(201).json({ message: 'User created', token, user: safeUser });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -113,6 +157,18 @@ const loginUser = async (req, res) => {
         const user = await User.findOne({ email: email.toLowerCase().trim() });
 
         if (!user) {
+            const pendingRequest = await AccountRequest.findOne({
+                email: email.toLowerCase().trim(),
+                status: 'pending',
+            });
+
+            if (pendingRequest) {
+                return res.status(403).json({
+                    error: 'Email is pending admin approval',
+                    pending: true,
+                });
+            }
+
             return res.status(401).json({ error: 'Invalid email or password' });
         }
 
@@ -125,7 +181,8 @@ const loginUser = async (req, res) => {
         // 🔒 NEW: APPROVAL CHECK (ADD THIS)
         if (!user.isApproved) {
             return res.status(403).json({
-                error: 'Your account is pending admin approval.'
+                error: 'Email is pending admin approval',
+                pending: true,
             });
         }
 
