@@ -91,7 +91,7 @@ export function Messages() {
       if (!currentUser) return;
 
       try {
-        const res = await fetch(`${API_BASE_URL}/api/users`, {
+        const res = await fetch(`${API_BASE_URL}/api/users/approvers`, {
           credentials: 'include',
         });
 

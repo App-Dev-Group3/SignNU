@@ -5,6 +5,7 @@ const cors = require('cors');
 const session = require('express-session');
 const approvalRoutes = require('./routes/route');
 const userRoutes = require('./routes/userRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const formRoutes = require('./routes/formRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -55,6 +56,7 @@ app.use((req, res, next) => {
 // 3. API Routes
 app.use('/api/approvals', approvalRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/forms', formRoutes);
 app.use('/api/messages', messageRoutes);
 

@@ -105,6 +105,12 @@ export interface FormSubmission {
   aiSummary?: string;
 }
 
+type AuthResult = {
+  success: boolean;
+  pending?: boolean;
+  message?: string;
+};
+
 /* ===================== CONTEXT ===================== */
 
 interface WorkflowContextType {
@@ -116,8 +122,8 @@ interface WorkflowContextType {
   notifications: Notification[];
   qrSessions: QRSession[];
 
-  login: (email: string, password: string) => Promise<boolean>;
-  register: (data: any) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<AuthResult>;
+  register: (data: any) => Promise<AuthResult>;
   logout: () => void;
 
   addForm: (form: Omit<FormSubmission, 'submittedAt' | 'currentStep' | 'signatureMarkers'>) => Promise<FormSubmission | undefined>;
@@ -253,7 +259,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   /* ===================== LOGIN ===================== */
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<AuthResult> => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/users/login`, {
         method: 'POST',
@@ -263,7 +269,13 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       });
 
       const data = await res.json();
-      if (!res.ok) return false;
+      if (!res.ok) {
+        return {
+          success: false,
+          pending: !!data.pending,
+          message: data.error || 'Unable to sign in',
+        };
+      }
 
       setCurrentUser({
         id: data.user._id,
@@ -274,9 +286,9 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       });
 
       setIsAuthenticated(true);
-      return true;
+      return { success: true };
     } catch {
-      return false;
+      return { success: false, message: 'Unable to sign in' };
     }
   };
 
@@ -732,19 +744,28 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (data: {
-    name: string;
+    firstName: string;
+    middleInitial?: string;
+    lastName: string;
     email: string;
     password: string;
     role: string;
     department: string;
-  }) => {
+  }): Promise<AuthResult> => {
     try {
+      const fullName = [data.firstName, data.lastName, data.middleInitial]
+        .filter((part) => part && part.trim().length > 0)
+        .join(' ');
+
       const res = await fetch(`${API_BASE_URL}/api/users`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: data.name,
+          firstName: data.firstName,
+          middleInitial: data.middleInitial,
+          lastName: data.lastName,
+          username: fullName,
           email: data.email.toLowerCase().trim(),
           password: data.password,
           role: data.role,
@@ -753,24 +774,48 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       });
 
       const responseData = await res.json();
-      if (!res.ok || !responseData.token || !responseData.user) {
+      if (!res.ok) {
         console.error('Register failed:', responseData);
-        return false;
+        return {
+          success: false,
+          pending: !!responseData.pending,
+          message: responseData.error || 'Unable to create account',
+        };
       }
 
-      setCurrentUser({
-        id: responseData.user._id ?? responseData.user.id,
-        name: responseData.user.username ?? responseData.user.email,
-        role: responseData.user.role,
-        email: responseData.user.email,
-        signatureURL: responseData.user.signatureURL ?? responseData.user.signatureUrl,
-      });
-      setIsAuthenticated(true);
+      if (responseData.pending) {
+        return {
+          success: true,
+          pending: true,
+          message: responseData.message || 'Account request submitted and pending admin approval',
+        };
+      }
 
-      return true;
+      if (!responseData.user) {
+        return {
+          success: false,
+          message: 'Unable to create account',
+        };
+      }
+
+      // If server issued token (auto-approved user), persist session state in client.
+      if (responseData.token) {
+        setCurrentUser({
+          id: responseData.user._id ?? responseData.user.id,
+          name: responseData.user.username ?? responseData.user.email,
+          role: responseData.user.role,
+          email: responseData.user.email,
+          signatureURL: responseData.user.signatureURL ?? responseData.user.signatureUrl,
+        });
+        setIsAuthenticated(true);
+        return { success: true };
+      }
+
+      // Fallback for non-token success responses.
+      return { success: true, pending: !!responseData.pending };
     } catch (error) {
       console.error('Register error:', error);
-      return false;
+      return { success: false, message: 'Unable to create account' };
     }
   };
 
