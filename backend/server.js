@@ -4,6 +4,7 @@ const http = require('http');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
@@ -88,6 +89,10 @@ app.use(
     secret: process.env.SESSION_SECRET || 'secret123',
     resave: false,
     saveUninitialized: false,
+    store: new MongoStore({
+      mongoUrl: process.env.MONGO_URI,
+      touchAfter: 24 * 3600, // lazy session update (in seconds)
+    }),
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
