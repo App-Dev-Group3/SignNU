@@ -168,6 +168,7 @@ interface WorkflowContextType {
 
   addNotification: (formId: string, userId: string, message: string) => Promise<void>;
   markNotificationRead: (notificationId: string) => Promise<void>;
+  dismissNotification: (notificationId: string) => Promise<void>;
 
   downloadFormPDF: (formId: string) => void;
   setCurrentUserSignature: (signatureURL: string) => void;
@@ -405,7 +406,10 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   const approveStep = async (formId: string, stepId: string) => {
     const form = forms.find((f) => f.id === formId);
-    if (!form) return;
+    if (!form || !currentUser) return;
+
+    const approvedStep = form.approvalSteps.find((s) => s.id === stepId);
+    if (!approvedStep) return;
 
     const approvedSteps = form.approvalSteps.map((s) =>
       s.id === stepId
@@ -432,11 +436,23 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       currentStep: updatedForm.currentStep,
       status: updatedForm.status,
     });
+
+    if (form.submittedById) {
+      const statusMsg = isFinalApproval ? 'fully approved' : `approved by ${approvedStep.role}`;
+      await addNotification(
+        formId,
+        form.submittedById,
+        `Your "${form.title}" form has been ${statusMsg}`
+      );
+    }
   };
 
   const rejectStep = async (formId: string, stepId: string, comments: string) => {
     const form = forms.find((f) => f.id === formId);
-    if (!form) return;
+    if (!form || !currentUser) return;
+
+    const rejectedStep = form.approvalSteps.find((s) => s.id === stepId);
+    if (!rejectedStep) return;
 
     const rejectedSteps = form.approvalSteps.map((s) =>
       s.id === stepId
@@ -460,6 +476,15 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       approvalSteps: rejectedSteps,
       status: 'rejected' as const,
     });
+
+    if (form.submittedById) {
+      const commentMsg = comments ? ` (${comments})` : '';
+      await addNotification(
+        formId,
+        form.submittedById,
+        `Your "${form.title}" form was rejected by ${rejectedStep.role}${commentMsg}`
+      );
+    }
   };
 
   /* ===================== QR ===================== */
@@ -601,6 +626,20 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       );
     } catch {
       // ignore mark-read failures silently
+    }
+  };
+
+  const dismissNotification = async (notificationId: string) => {
+    try {
+      await authFetch(
+        `${API_BASE_URL}/api/users/${currentUser?.id}/notifications/${notificationId}`,
+        {
+          method: 'DELETE',
+        }
+      );
+      setNotifications((prev) => prev.filter((notification) => notification.id !== notificationId));
+    } catch {
+      // ignore dismiss failures silently
     }
   };
 
@@ -859,6 +898,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
         addNotification,
         markNotificationRead,
+        dismissNotification,
 
         downloadFormPDF,
         setCurrentUserSignature,

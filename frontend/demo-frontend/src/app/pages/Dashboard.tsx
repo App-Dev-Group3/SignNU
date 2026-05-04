@@ -4,13 +4,13 @@ import { useWorkflow } from '../context/WorkflowContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { FileText, CheckCircle, Clock, AlertCircle, Plus, Bell } from 'lucide-react';
+import { FileText, CheckCircle, Clock, AlertCircle, Plus, Bell, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import AIAssistant from '../components/ui/AIAssistant';
 
 export function Dashboard() {
-  const { forms, currentUser, notifications, markNotificationRead, deleteForm } = useWorkflow();
+  const { forms, currentUser, notifications, markNotificationRead, dismissNotification, deleteForm } = useWorkflow();
   const [notificationsExpanded, setNotificationsExpanded] = useState(false);
 
   if (!currentUser) return null;
@@ -134,23 +134,85 @@ export function Dashboard() {
             <CardContent>
               {myNotifications.length === 0 ? (
                 <p className="text-sm text-gray-500">No notifications yet.</p>
+              ) : notificationsExpanded ? (
+                <>
+                  <div className="space-y-3 mb-4 max-h-96 overflow-y-auto">
+                    {myNotifications.map(n => {
+                      const isApproved = n.message.toLowerCase().includes('approved');
+                      const isRejected = n.message.toLowerCase().includes('rejected');
+                      return (
+                        <div key={n.id} className={`p-3 rounded-lg flex items-start justify-between gap-3 ${
+                          isApproved ? 'bg-green-50 border border-green-200' :
+                          isRejected ? 'bg-red-50 border border-red-200' :
+                          'bg-[#35408e]/5 border border-[#35408e]/10'
+                        }`}>
+                          <div className="flex-1">
+                            <p className={`text-sm font-medium ${
+                              isApproved ? 'text-green-900' :
+                              isRejected ? 'text-red-900' :
+                              'text-gray-900'
+                            }`}>{n.message}</p>
+                            <p className="text-xs text-gray-500 mt-2">
+                              {new Date(n.createdAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => dismissNotification(n.id)}
+                            className="shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+                            aria-label="Dismiss notification"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    onClick={() => setNotificationsExpanded(false)}
+                    variant="outline"
+                    className="w-full h-10"
+                  >
+                    Show less
+                  </Button>
+                </>
               ) : (
                 myNotifications.slice(0, 1).map(n => (
-                  <div key={n.id} className="p-3 rounded-lg bg-[#35408e]/5 border border-[#35408e]/10">
-                    <p className="text-sm">{n.message}</p>
-                    <p className="text-xs text-gray-500 mt-2">
-                      {new Date(n.createdAt).toLocaleString()}
-                    </p>
+                  <div key={n.id} className={`p-3 rounded-lg flex items-start justify-between gap-3 ${
+                    n.message.toLowerCase().includes('approved') ? 'bg-green-50 border border-green-200' :
+                    n.message.toLowerCase().includes('rejected') ? 'bg-red-50 border border-red-200' :
+                    'bg-[#35408e]/5 border border-[#35408e]/10'
+                  }`}>
+                    <div className="flex-1">
+                      <p className={`text-sm font-medium ${
+                        n.message.toLowerCase().includes('approved') ? 'text-green-900' :
+                        n.message.toLowerCase().includes('rejected') ? 'text-red-900' :
+                        'text-gray-900'
+                      }`}>{n.message}</p>
+                      <p className="text-xs text-gray-500 mt-2">
+                        {new Date(n.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => dismissNotification(n.id)}
+                      className="shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+                      aria-label="Dismiss notification"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 ))
               )}
 
-              <Button
-                onClick={() => setNotificationsExpanded(true)}
-                className="mt-4 w-full h-11 bg-[#35408e] hover:bg-[#2c3577] text-white shadow-lg shadow-[#35408e]/30 transition-all hover:scale-[1.02]"
-              >
-                View all
-              </Button>
+              {!notificationsExpanded && myNotifications.length > 0 && (
+                <Button
+                  onClick={() => setNotificationsExpanded(true)}
+                  className="mt-4 w-full h-11 bg-[#35408e] hover:bg-[#2c3577] text-white shadow-lg shadow-[#35408e]/30 transition-all hover:scale-[1.02]"
+                >
+                  View all
+                </Button>
+              )}
             </CardContent>
           </Card>
         </div>

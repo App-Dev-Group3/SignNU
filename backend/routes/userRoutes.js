@@ -20,6 +20,7 @@ const {
     getUserNotifications,
     addUserNotification,
     updateUserNotification,
+    deleteUserNotification,
     updateUser,
     updateUserRole,
     updateSignature,
@@ -112,6 +113,7 @@ router.put(
 router.get('/:id/notifications', authMiddleware, getUserNotifications);
 router.post('/:id/notifications', authMiddleware, addUserNotification);
 router.patch('/:id/notifications/:notificationId', authMiddleware, updateUserNotification);
+router.delete('/:id/notifications/:notificationId', authMiddleware, deleteUserNotification);
 
 // ======================
 // USER MANAGEMENT

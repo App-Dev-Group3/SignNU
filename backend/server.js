@@ -40,27 +40,35 @@ io.use((socket, next) => {
     : cookies.auth_token;
 
   if (!token) {
-    return next(new Error('Authorization token required'));
+    console.warn('Socket connection attempted without auth token');
+    return next();
   }
 
   try {
     socket.user = jwt.verify(token, process.env.JWT_SECRET || 'secret123');
     return next();
   } catch (error) {
-    return next(new Error('Invalid or expired token'));
+    console.warn('Socket auth token invalid:', error.message);
+    return next();
   }
 });
 
 io.on('connection', (socket) => {
+  console.log('Socket connected:', socket.id);
   if (socket.user?.id) {
     socket.join(`user:${socket.user.id}`);
+    console.log(`User ${socket.user.id} joined room user:${socket.user.id}`);
   }
+
+  socket.on('disconnect', () => {
+    console.log('Socket disconnected:', socket.id);
+  });
 });
 
 app.set('io', io);
 
-// Import the promises-based version of Node.js's DNS module const 
-dns = require("node:dns/promises"); 
+// Import the promises-based version of Node.js's DNS module
+const dns = require("node:dns/promises"); 
 
 // Configures the DNS servers that Node.js will use for all subsequent DNS lookups 
 // Cloudflare + Google DNS 
