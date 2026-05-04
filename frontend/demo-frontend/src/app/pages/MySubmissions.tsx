@@ -19,6 +19,28 @@ export function MySubmissions() {
   }
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
+  const getStatusStyles = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return 'bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/20';
+      case 'rejected':
+        return 'bg-rose-500/10 text-rose-700 ring-1 ring-rose-500/20';
+      default:
+        return 'bg-amber-500/10 text-amber-700 ring-1 ring-amber-500/20';
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return 'Approved';
+      case 'rejected':
+        return 'Rejected';
+      default:
+        return 'Pending';
+    }
+  };
+
   const handleDeleteDraft = async (id: string) => {
     const confirmed = window.confirm('Delete this draft? This action cannot be undone.');
     if (!confirmed) return;
@@ -99,16 +121,8 @@ export function MySubmissions() {
                         <Link to={`/form/${form.id}`} className="font-semibold text-gray-900 hover:text-blue-700">
                           {form.title}
                         </Link>
-                        <Badge
-                          variant={
-                            form.status === 'approved'
-                              ? 'default'
-                              : form.status === 'rejected'
-                              ? 'destructive'
-                              : 'secondary'
-                          }
-                        >
-                          {form.status}
+                        <Badge className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${getStatusStyles(form.status)}`}>
+                          {getStatusLabel(form.status)}
                         </Badge>
                       </div>
                       <p className="text-sm text-gray-600 mb-3">{form.description}</p>
@@ -126,16 +140,18 @@ export function MySubmissions() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-start gap-2">
+                      <div className="flex flex-wrap items-start gap-2">
                       <Link to={`/form/${form.id}`}>
-                        <Button size="sm">View Details</Button>
+                        <Button size="sm" className="h-10 bg-[#35408e] text-white shadow-lg shadow-[#35408e]/20 transition-all hover:bg-[#2c3577] hover:scale-[1.02]">
+                          View Details
+                        </Button>
                       </Link>
                       {form.status === 'draft' && form.submittedById === currentUser.id && (
                         <Button
                           variant="destructive"
                           size="sm"
                           onClick={() => handleDeleteDraft(form.id)}
-                          className="whitespace-nowrap"
+                          className="h-10 whitespace-nowrap bg-[#ef4444] text-white shadow-lg shadow-red-500/20 transition-all hover:bg-[#dc2626] hover:scale-[1.02]"
                         >
                           Delete Draft
                         </Button>

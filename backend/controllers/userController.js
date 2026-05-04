@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const { Resend } = require('resend');
 const User = require('../models/user.js');
+const AccountRequest = require('../models/accountRequest.js');
 const cloudinary = require('cloudinary').v2;
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -18,6 +19,8 @@ const generateToken = (user) => {
             id: user._id,
             email: user.email,
             role: user.role,
+            username: user.username,
+            name: user.username,
         },
         process.env.JWT_SECRET || 'secret123',
         { expiresIn: '1h' }
@@ -36,6 +39,18 @@ console.log(cloudinary.config());
 const getAllUsers = async (req, res) => {
     try {
         const users = await User.find({}).sort({ created_at: -1 }).select('-password');
+        res.status(200).json(users);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const getApproverUsers = async (_req, res) => {
+    try {
+        const users = await User.find({ isApproved: true })
+            .sort({ username: 1 })
+            .select('_id username email role department isApproved');
+
         res.status(200).json(users);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -62,41 +77,86 @@ const getUserById = async (req, res) => {
 
 // Create a new user
 const createUser = async (req, res) => {
-    const { username, email, password, role, department, notifications } = req.body;
+    const { firstName, middleInitial, mi, lastName, username, email, password, role, department, notifications } = req.body;
     try {
-        const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
+        const normalizedEmail = email.toLowerCase().trim();
+        const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) {
             return res.status(400).json({ error: 'Email already exists' });
         }
 
+        const existingRequest = await AccountRequest.findOne({ email: normalizedEmail });
+        if (existingRequest && existingRequest.status === 'pending') {
+            return res.status(409).json({
+                error: 'Email is pending admin approval',
+                pending: true,
+            });
+        }
+        if (existingRequest && existingRequest.status === 'approved') {
+            return res.status(400).json({ error: 'Email already exists' });
+        }
+
+        const normalizedFirstName = (firstName || '').trim();
+        const normalizedLastName = (lastName || '').trim();
+        const normalizedMi = (middleInitial ?? mi ?? '').toString().trim();
+
+        if (!normalizedFirstName || !normalizedLastName) {
+            return res.status(400).json({ error: 'First name and last name are required' });
+        }
+
+        const fullName = username || [normalizedFirstName, normalizedLastName, normalizedMi]
+          .filter((part) => part && part.toString().trim().length > 0)
+          .join(' ');
+
         const hashedPassword = await bcrypt.hash(password, 10);
-        const user = await User.create({
-            username,
-            email: email.toLowerCase().trim(),
+
+        if (existingRequest && existingRequest.status === 'rejected') {
+            existingRequest.firstName = normalizedFirstName;
+            existingRequest.middleInitial = normalizedMi;
+            existingRequest.lastName = normalizedLastName;
+            existingRequest.username = fullName;
+            existingRequest.password = hashedPassword;
+            existingRequest.role = role;
+            existingRequest.department = department;
+            existingRequest.status = 'pending';
+            existingRequest.reviewedBy = undefined;
+            existingRequest.reviewedAt = undefined;
+            existingRequest.reviewNote = undefined;
+            await existingRequest.save();
+
+            return res.status(201).json({
+                message: 'Account request submitted and pending admin approval',
+                pending: true,
+                request: {
+                    id: existingRequest._id,
+                    email: existingRequest.email,
+                    status: existingRequest.status,
+                },
+            });
+        }
+
+        const request = await AccountRequest.create({
+            firstName: normalizedFirstName,
+            middleInitial: normalizedMi,
+            lastName: normalizedLastName,
+            username: fullName,
+            email: normalizedEmail,
             password: hashedPassword,
             role,
             department,
             notifications,
+            status: 'pending',
         });
 
-        const safeUser = user.toObject();
-        delete safeUser.password;
-
-        const token = generateToken(user);
-        req.session.user = {
-            id: user._id.toString(),
-            email: user.email,
-            role: user.role,
-        };
-
-        res.cookie('auth_token', token, {
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === 'production',
-            maxAge: 60 * 60 * 1000, // 1 hour
+        return res.status(201).json({
+            message: 'Account request submitted and pending admin approval',
+            pending: true,
+            request: {
+                id: request._id,
+                email: request.email,
+                status: request.status,
+            },
         });
-
-        res.status(201).json({ message: 'User created', token, user: safeUser });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -107,23 +167,48 @@ const loginUser = async (req, res) => {
     const { email, password } = req.body;
     try {
         const user = await User.findOne({ email: email.toLowerCase().trim() });
+
         if (!user) {
+            const pendingRequest = await AccountRequest.findOne({
+                email: email.toLowerCase().trim(),
+                status: 'pending',
+            });
+
+            if (pendingRequest) {
+                return res.status(403).json({
+                    error: 'Email is pending admin approval',
+                    pending: true,
+                });
+            }
+
             return res.status(401).json({ error: 'Invalid email or password' });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
+
         if (!isMatch) {
             return res.status(401).json({ error: 'Invalid email or password' });
+        }
+
+        // 🔒 NEW: APPROVAL CHECK (ADD THIS)
+        if (!user.isApproved) {
+            return res.status(403).json({
+                error: 'Email is pending admin approval',
+                pending: true,
+            });
         }
 
         const safeUser = user.toObject();
         delete safeUser.password;
 
         const token = generateToken(user);
+
         req.session.user = {
             id: user._id.toString(),
             email: user.email,
             role: user.role,
+            username: user.username,
+            name: user.username,
         };
 
         res.cookie('auth_token', token, {
@@ -133,7 +218,12 @@ const loginUser = async (req, res) => {
             maxAge: 60 * 60 * 1000, // 1 hour
         });
 
-        res.status(200).json({ message: 'Login successful', token, user: safeUser });
+        res.status(200).json({
+            message: 'Login successful',
+            token,
+            user: safeUser
+        });
+
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -255,6 +345,35 @@ const requestPasswordReset = async (req, res) => {
         res.status(200).json({ message: 'If that email exists, a password reset link has been sent.' });
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+};
+
+const testSendEmail = async (req, res) => {
+    const { email, subject, html, text } = req.body;
+    if (!email) {
+        return res.status(400).json({ error: 'Email is required.' });
+    }
+
+    if (!resendClient) {
+        return res.status(500).json({ error: 'Resend API key is not configured.' });
+    }
+
+    try {
+        const sendResponse = await resendClient.emails.send({
+            from: EMAIL_FROM,
+            to: [email],
+            subject: subject || 'SignNU Test Email',
+            html: html || '<strong>This is a SignNU test email.</strong>',
+            text: text || 'This is a SignNU test email.',
+        });
+
+        return res.status(200).json({ success: true, response: sendResponse });
+    } catch (error) {
+        console.error('Test send email failed:', error);
+        return res.status(error?.statusCode || 500).json({
+            error: error?.message || 'Failed to send test email.',
+            details: error,
+        });
     }
 };
 
@@ -493,6 +612,30 @@ const uploadRawToCloudinary = (buffer, id, filename) => {
     });
 };
 
+// Detect image MIME type from buffer using magic numbers
+const detectImageMime = (buffer) => {
+    if (!buffer || buffer.length < 12) return null;
+    
+    // PNG magic number: 89 50 4E 47 0D 0A 1A 0A
+    const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    let isPng = true;
+    for (let i = 0; i < pngSignature.length; i++) {
+        if (buffer[i] !== pngSignature[i]) {
+            isPng = false;
+            break;
+        }
+    }
+    if (isPng) return 'image/png';
+    
+    // JPEG magic: first two bytes 0xFF 0xD8
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+        // Optionally check for Exif/JFIF header, but the first two bytes are enough
+        return 'image/jpeg';
+    }
+    
+    return null;
+};
+
 // Update user signature
 const updateSignature = async (req, res) => {
     const { id } = req.params;
@@ -519,6 +662,14 @@ const updateSignature = async (req, res) => {
     else {
         return res.status(400).json({
             error: 'No signature provided. Upload a file or draw a signature.'
+        });
+    }
+
+    const detectedMime = detectImageMime(buffer);
+    
+    if (!detectedMime || (detectedMime !== 'image/png' && detectedMime !== 'image/jpeg')) {
+        return res.status(400).json({
+            error: 'Invalid file type. Only PNG and JPEG images are allowed (based on file content).'
         });
     }
 
@@ -573,6 +724,30 @@ const deleteUser = async (req, res) => {
     }
 };
 
+const getAvailableRoles = async (_req, res) => {
+    try {
+        const roles = await User.distinct('role', { isApproved: true });
+        const filteredRoles = roles
+            .filter(role => role && role.trim() && role !== 'Student')
+            .sort();
+        res.status(200).json(filteredRoles);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const getAvailableDepartments = async (_req, res) => {
+    try {
+        const departments = await User.distinct('department', { isApproved: true });
+        const filteredDepartments = departments
+            .filter(dept => dept && dept.trim())
+            .sort();
+        res.status(200).json(filteredDepartments);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     getAllUsers,
     getUserById,
@@ -582,6 +757,7 @@ module.exports = {
     logoutUser,
     changePassword,
     requestPasswordReset,
+    testSendEmail,
     resetPassword,
     getUserNotifications,
     addUserNotification,
@@ -591,4 +767,7 @@ module.exports = {
     updateSignature,
     updatePdf,
     deleteUser,
+    getApproverUsers,
+    getAvailableRoles,
+    getAvailableDepartments,
 };

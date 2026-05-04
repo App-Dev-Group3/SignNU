@@ -11,6 +11,40 @@ const NotificationSchema = new Schema({
 }, { _id: false });
 
 const userSchema = new Schema({
+  firstName: { 
+    type: String, 
+    required: true,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        return /^[A-Za-z\s\-]+$/.test(v); // No numbers/special chars
+      },
+      message: 'First name must contain only letters'
+    }
+  },
+  middleInitial: { 
+    type: String, 
+    trim: true,
+    uppercase: true,
+    maxLength: [1, 'Middle Initial must be 1 character only'],
+    validate: {
+      validator: function(v) {
+        return v === '' || /^[A-Z]$/.test(v); // 1 letter or empty
+      },
+      message: 'Middle Initial must be a single letter'
+    }
+  },
+  lastName: { 
+    type: String, 
+    required: true,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        return /^[A-Za-z\s\-]+$/.test(v);
+      },
+      message: 'Last name must contain only letters'
+    }
+  },
   username: { type: String, required: true, unique: true },
   email: {
     type: String,
@@ -25,14 +59,30 @@ const userSchema = new Schema({
       message: 'Email must end with @nu-laguna.edu.ph or @students.nu-laguna.edu.ph'
     }
   },
-  password: { type: String, required: true },
+  password: { 
+    type: String, 
+    required: true,
+    minlength: [8, 'Password must be at least 8 characters long'],
+    // Note: If you are hashing with bcrypt, complexity checks should happen 
+    // BEFORE hashing, usually in a pre-save hook or your controller.
+  },
   passwordResetToken: { type: String },
   passwordResetTokenExpires: { type: Date },
+
   role: { type: String, default: 'user' },
+
+  isApproved: {
+    type: Boolean,
+    default: function () {
+      return this.role === "Admin"; 
+    }
+  },
+
   department: { type: String },
   notifications: [NotificationSchema],
   signatureURL: { type: String },
   pdfURL: { type: String }
+
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 module.exports = mongoose.model('User', userSchema);

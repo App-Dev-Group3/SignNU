@@ -1,11 +1,119 @@
 const Form = require('../models/form.js');
+const User = require('../models/user.js');
 const cloudinary = require('cloudinary').v2;
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const { Resend } = require('resend');
 const fetch = globalThis.fetch || ((...args) => require('node-fetch')(...args));
+
+const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const EMAIL_FROM = process.env.EMAIL_FROM || 'SignNU <no-reply@signnu.work>';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 cloudinary.config({
   secure: true,
 });
+
+const NUDGE_INTERVAL_MS = 8 * 60 * 60 * 1000;
+
+const formatCooldown = (ms) => {
+  const totalMinutes = Math.ceil(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${minutes}m`;
+};
+
+const nudgeApprover = async (req, res) => {
+  const { id } = req.params;
+  const user = req.user;
+
+  try {
+    const form = await Form.findOne({ id });
+    if (!form) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+
+    if (form.status !== 'pending') {
+      return res.status(400).json({ error: 'Only pending forms can be nudged.' });
+    }
+
+    const isRequester = String(user.id) === String(form.submittedById);
+    const isAdminUser = user.role === 'Admin';
+
+    if (!isRequester && !isAdminUser) {
+      return res.status(403).json({ error: 'Only the request owner or an admin can nudge the approver.' });
+    }
+
+    const now = new Date();
+    const requesterNudgeAt = form.lastRequesterNudgedAt ? new Date(form.lastRequesterNudgedAt) : null;
+    const adminNudgeAt = form.lastAdminNudgedAt ? new Date(form.lastAdminNudgedAt) : null;
+
+    if (isAdminUser) {
+      if (adminNudgeAt && adminNudgeAt.getTime() + NUDGE_INTERVAL_MS > now.getTime()) {
+        const remaining = adminNudgeAt.getTime() + NUDGE_INTERVAL_MS - now.getTime();
+        return res.status(400).json({ error: `Admin can only nudge again after ${formatCooldown(remaining)}.` });
+      }
+      form.lastAdminNudgedAt = now.toISOString();
+    } else {
+      if (requesterNudgeAt && requesterNudgeAt.getTime() + NUDGE_INTERVAL_MS > now.getTime()) {
+        const remaining = requesterNudgeAt.getTime() + NUDGE_INTERVAL_MS - now.getTime();
+        return res.status(400).json({ error: `You can only nudge again after ${formatCooldown(remaining)}.` });
+      }
+      form.lastRequesterNudgedAt = now.toISOString();
+    }
+
+    form.lastNudgedAt = now.toISOString();
+
+    const pendingSteps = form.approvalSteps.filter((step) => step.status === 'pending');
+    const pendingUserIds = pendingSteps.map((step) => step.userId);
+    const approvers = await User.find({ _id: { $in: pendingUserIds } });
+
+    await Promise.all(
+      approvers.map(async (approver) => {
+        if (!approver.email) return;
+
+        const actorName = user.name || user.username || user.email || 'Someone';
+        const message = `${actorName} has nudged you to review the pending request "${form.title}".`;
+
+        if (resendClient) {
+          try {
+            await resendClient.emails.send({
+              from: EMAIL_FROM,
+              to: approver.email,
+              subject: `SignNU Reminder: Review ${form.title}`,
+              html: `<p>${message}</p><p><a href="${FRONTEND_URL}/forms/${form.id}">Open request</a></p>`,
+            });
+          } catch (sendError) {
+            console.warn(`Failed to send nudge email to ${approver.email}:`, sendError);
+          }
+        }
+
+        approver.notifications = [
+          {
+            id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            formId: form.id,
+            userId: approver._id.toString(),
+            message,
+            read: false,
+            createdAt: new Date(),
+          },
+          ...(approver.notifications || []),
+        ];
+
+        await approver.save();
+      })
+    );
+
+    await form.save();
+
+    return res.status(200).json({
+      message: 'Approver nudged successfully.',
+      form,
+    });
+  } catch (error) {
+    console.error('Nudge approver failed:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};
 
 const parseDataUrl = (dataUrl) => {
   const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
@@ -303,4 +411,5 @@ module.exports = {
   updateForm,
   deleteForm,
   generatePdf,
+  nudgeApprover,
 };

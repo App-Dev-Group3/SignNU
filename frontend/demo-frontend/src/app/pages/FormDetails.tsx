@@ -836,6 +836,8 @@ export function FormDetails() {
                         onClose={() => setIsPdfEditorOpen(false)}
                         isSaving={isSavingPdfEditor}
                         currentUserId={currentUser.id}
+                        currentUserSignatureURL={currentUser.signatureURL ?? null}
+                        approvalSteps={form.approvalSteps}
                       />
                     ) : (
                       <div className="flex h-full items-center justify-center p-6 text-sm text-gray-500">
