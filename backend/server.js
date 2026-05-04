@@ -72,6 +72,65 @@ const model = genAI.getGenerativeModel({
 });
 
 // =====================
+// Conversation History Storage (in-memory)
+// =====================
+const conversationHistory = new Map();
+
+// Helper: Generate unique conversation ID
+const generateConversationId = () => {
+  return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+};
+
+// Helper: Get or create conversation
+const getConversation = (conversationId) => {
+  if (!conversationHistory.has(conversationId)) {
+    conversationHistory.set(conversationId, {
+      messages: [],
+      pdfContent: null,
+      createdAt: new Date(),
+    });
+  }
+  return conversationHistory.get(conversationId);
+};
+
+// Helper: Add message to conversation
+const addMessage = (conversationId, sender, text) => {
+  const conversation = getConversation(conversationId);
+  conversation.messages.push({
+    sender,
+    text,
+    timestamp: new Date(),
+  });
+};
+
+// Helper: Get conversation context
+const getConversationContext = (conversationId) => {
+  const conversation = getConversation(conversationId);
+  return conversation.messages
+    .map((msg) => `${msg.sender === "user" ? "User" : "AI"}: ${msg.text}`)
+    .join("\n");
+};
+
+// Helper: Set PDF content in conversation
+const setPdfContent = (conversationId, pdfBuffer, mimeType) => {
+  const conversation = getConversation(conversationId);
+  conversation.pdfContent = {
+    data: pdfBuffer.toString("base64"),
+    mimeType,
+  };
+};
+
+// Helper: Cleanup old conversations (older than 1 hour)
+setInterval(() => {
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  for (const [id, conv] of conversationHistory.entries()) {
+    if (conv.createdAt.getTime() < oneHourAgo) {
+      conversationHistory.delete(id);
+    }
+  }
+}, 10 * 60 * 1000); // Check every 10 minutes
+
+// =====================
 // Helper: safe response extraction
 // =====================
 const formatResponseContent = (text) => {
@@ -160,33 +219,54 @@ ${userMessage}
 app.post("/api/summary/chat", upload.single("pdf"), async (req, res) => {
   try {
     const userMessage = req.body.message;
+    let conversationId = req.body.conversationId;
 
     if (!userMessage && !req.file) {
       return res.status(400).json({ error: "No input provided" });
     }
 
-    // =====================
-    // Build Gemini contents for summary
-    // =====================
+    // Create new conversation if needed
+    if (!conversationId) {
+      conversationId = generateConversationId();
+    }
+
+    // Initialize conversation
+    const conversation = getConversation(conversationId);
+
+    // Store PDF in conversation if provided
+    if (req.file) {
+      setPdfContent(conversationId, req.file.buffer, req.file.mimetype);
+    }
+
+    // Build Gemini contents with history
     const parts = [];
 
-    if (userMessage) {
+    // Add conversation history as context
+    const conversationContext = getConversationContext(conversationId);
+    if (conversationContext) {
       parts.push({
-        text: `
-You are a helpful assistant specialized in summarizing documents and digital signatures.
-Provide a concise summary of the uploaded document or answer the user's question about it.
-
-User message:
-${userMessage}
-        `,
+        text: `Previous conversation context:\n${conversationContext}\n\n---\n`,
       });
     }
 
-    if (req.file) {
+    // Add current user message
+    if (userMessage) {
+      parts.push({
+        text: `You are a helpful assistant specialized in summarizing documents and digital signatures.
+Provide a concise summary of the uploaded document or answer the user's questions about it.
+Remember the context from previous messages and the document content.
+
+Current user message:
+${userMessage}`,
+      });
+    }
+
+    // Add PDF if present
+    if (conversation.pdfContent) {
       parts.push({
         inlineData: {
-          mimeType: req.file.mimetype,
-          data: req.file.buffer.toString("base64"),
+          mimeType: conversation.pdfContent.mimeType,
+          data: conversation.pdfContent.data,
         },
       });
     }
@@ -206,13 +286,95 @@ ${userMessage}
 
     const aiReply = formatResponseContent(response.text()) || "No reply from AI";
 
-    return res.json({ reply: aiReply });
+    // Store user message and AI response in conversation history
+    if (userMessage) {
+      addMessage(conversationId, "user", userMessage);
+    }
+    addMessage(conversationId, "ai", aiReply);
+
+    return res.json({ 
+      reply: aiReply,
+      conversationId: conversationId,
+    });
   } catch (error) {
     console.error("❌ Gemini Error:", error);
     return res.status(500).json({
       error: "Failed to get AI response",
     });
   }
+});
+
+// =====================
+// New Conversation Route - POST /api/summary/new
+// =====================
+app.post("/api/summary/new", (req, res) => {
+  const conversationId = generateConversationId();
+  getConversation(conversationId); // Initialize
+  res.json({ conversationId });
+});
+
+// =====================
+// Get Conversation History Route - GET /api/summary/:conversationId
+// =====================
+app.get("/api/summary/:conversationId", (req, res) => {
+  const conversation = conversationHistory.get(req.params.conversationId);
+  
+  if (!conversation) {
+    return res.status(404).json({ error: "Conversation not found" });
+  }
+
+  res.json({
+    conversationId: req.params.conversationId,
+    messages: conversation.messages,
+    hasPdf: !!conversation.pdfContent,
+  });
+});
+
+// =====================
+// Clear PDF from Conversation - POST /api/summary/:conversationId/clear-pdf
+// =====================
+app.post("/api/summary/:conversationId/clear-pdf", (req, res) => {
+  const conversation = conversationHistory.get(req.params.conversationId);
+  
+  if (!conversation) {
+    return res.status(404).json({ error: "Conversation not found" });
+  }
+
+  // Remove PDF from conversation
+  conversation.pdfContent = null;
+
+  res.json({ 
+    success: true,
+    message: "PDF removed from conversation",
+    conversationId: req.params.conversationId,
+  });
+});
+
+// =====================
+// Update Conversation Messages - POST /api/summary/:conversationId/remove-message
+// =====================
+app.post("/api/summary/:conversationId/remove-message", (req, res) => {
+  const conversation = conversationHistory.get(req.params.conversationId);
+  
+  if (!conversation) {
+    return res.status(404).json({ error: "Conversation not found" });
+  }
+
+  const { messageIndex } = req.body;
+  
+  if (typeof messageIndex !== "number" || messageIndex < 0 || messageIndex >= conversation.messages.length) {
+    return res.status(400).json({ error: "Invalid message index" });
+  }
+
+  // Remove message from history
+  conversation.messages.splice(messageIndex, 1);
+
+  res.json({ 
+    success: true,
+    message: "Message removed from conversation",
+    conversationId: req.params.conversationId,
+    messages: conversation.messages,
+  });
 });
 
 // 4. Base Route
