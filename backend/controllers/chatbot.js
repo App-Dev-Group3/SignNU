@@ -23,7 +23,7 @@ export default function DigitalSignatureChat() {
 
     try {
       setLoading(true);
-      const res = await axios.post('http://localhost:5000/chat', formData, {
+      const res = await axios.post('http://localhost:4000/chat', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
