@@ -5,6 +5,7 @@ const path = require('path');
 const { Resend } = require('resend');
 const User = require('../models/user.js');
 const AccountRequest = require('../models/accountRequest.js');
+const { validateAccountRequest } = require('../models/accountRequest.js');
 const cloudinary = require('cloudinary').v2;
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -79,7 +80,10 @@ const getUserById = async (req, res) => {
 const createUser = async (req, res) => {
     const { firstName, middleInitial, mi, lastName, username, email, password, role, department, notifications } = req.body;
     try {
-        const normalizedEmail = email.toLowerCase().trim();
+        const normalizedEmail = (email || '').toLowerCase().trim();
+        if (!normalizedEmail) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
         const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) {
             return res.status(400).json({ error: 'Email already exists' });
@@ -107,17 +111,37 @@ const createUser = async (req, res) => {
         const fullName = username || [normalizedFirstName, normalizedLastName, normalizedMi]
           .filter((part) => part && part.toString().trim().length > 0)
           .join(' ');
+        const requestPayload = {
+            firstName: normalizedFirstName,
+            middleInitial: normalizedMi,
+            lastName: normalizedLastName,
+            username: fullName,
+            email: normalizedEmail,
+            password,
+            role,
+            department,
+            notifications,
+            status: 'pending',
+        };
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const { error, value } = validateAccountRequest(requestPayload);
+        if (error) {
+            return res.status(400).json({
+                error: 'Invalid account request data',
+                details: error.details.map((detail) => detail.message),
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(value.password, 10);
 
         if (existingRequest && existingRequest.status === 'rejected') {
-            existingRequest.firstName = normalizedFirstName;
-            existingRequest.middleInitial = normalizedMi;
-            existingRequest.lastName = normalizedLastName;
-            existingRequest.username = fullName;
+            existingRequest.firstName = value.firstName;
+            existingRequest.middleInitial = value.middleInitial;
+            existingRequest.lastName = value.lastName;
+            existingRequest.username = value.username;
             existingRequest.password = hashedPassword;
-            existingRequest.role = role;
-            existingRequest.department = department;
+            existingRequest.role = value.role;
+            existingRequest.department = value.department;
             existingRequest.status = 'pending';
             existingRequest.reviewedBy = undefined;
             existingRequest.reviewedAt = undefined;
@@ -136,16 +160,16 @@ const createUser = async (req, res) => {
         }
 
         const request = await AccountRequest.create({
-            firstName: normalizedFirstName,
-            middleInitial: normalizedMi,
-            lastName: normalizedLastName,
-            username: fullName,
-            email: normalizedEmail,
+            firstName: value.firstName,
+            middleInitial: value.middleInitial,
+            lastName: value.lastName,
+            username: value.username,
+            email: value.email,
             password: hashedPassword,
-            role,
-            department,
+            role: value.role,
+            department: value.department,
             notifications,
-            status: 'pending',
+            status: value.status,
         });
 
         return res.status(201).json({

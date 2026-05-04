@@ -1,5 +1,28 @@
 const mongoose = require('mongoose');
+const Joi = require('joi');
 const Schema = mongoose.Schema;
+
+const accountRequestEmailPattern = /^(?:[A-Za-z0-9._%+-]+@(?:nu-laguna\.edu\.ph|students\.nu-laguna\.edu\.ph|shs\.students\.nu-laguna\.edu\.ph))$/;
+
+const accountRequestValidationSchema = Joi.object({
+  firstName: Joi.string().trim().min(1).required(),
+  middleInitial: Joi.string().trim().uppercase().max(1).allow(''),
+  lastName: Joi.string().trim().min(1).required(),
+  username: Joi.string().trim().min(1).required(),
+  email: Joi.string().trim().lowercase().pattern(accountRequestEmailPattern).required().messages({
+    'string.pattern.base': 'Email must end with @nu-laguna.edu.ph or @students.nu-laguna.edu.ph or @shs.students.nu-laguna.edu.ph',
+  }),
+  password: Joi.string().min(8).required(),
+  role: Joi.string().trim().min(1).required(),
+  department: Joi.string().trim().min(1).required(),
+  status: Joi.string().valid('pending', 'approved', 'rejected').default('pending'),
+  reviewNote: Joi.string().trim().allow(''),
+});
+
+const validateAccountRequest = (payload) => accountRequestValidationSchema.validate(payload, {
+  abortEarly: false,
+  stripUnknown: true,
+});
 
 const accountRequestSchema = new Schema({
   firstName: { type: String, required: true, trim: true },
@@ -36,3 +59,4 @@ const accountRequestSchema = new Schema({
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 module.exports = mongoose.model('AccountRequest', accountRequestSchema);
+module.exports.validateAccountRequest = validateAccountRequest;

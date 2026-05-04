@@ -50,7 +50,7 @@ export default function AIAssistant() {
     setLoading(true);
 
     try {
-      const res = await axios.post("http://localhost:5000/chat", formData, {
+      const res = await axios.post("http://localhost:4000/chat", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
