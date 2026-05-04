@@ -1,9 +1,11 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const session = require('express-session');
 const multer = require('multer');
+const jwt = require('jsonwebtoken');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const approvalRoutes = require('./routes/route');
 const userRoutes = require('./routes/userRoutes');
@@ -13,7 +15,49 @@ const messageRoutes = require('./routes/messageRoutes');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 4000;
+const io = require('socket.io')(server, {
+  cors: {
+    origin: FRONTEND_URL,
+    credentials: true,
+  },
+});
+
+const parseCookies = (cookieHeader = '') =>
+  cookieHeader.split(';').reduce((cookies, cookie) => {
+    const [name, ...rest] = cookie.split('=');
+    if (!name) return cookies;
+    cookies[name.trim()] = decodeURIComponent(rest.join('='));
+    return cookies;
+  }, {});
+
+io.use((socket, next) => {
+  const authHeader = socket.handshake.headers.authorization;
+  const cookies = parseCookies(socket.handshake.headers.cookie || '');
+  const token = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.split(' ')[1]
+    : cookies.auth_token;
+
+  if (!token) {
+    return next(new Error('Authorization token required'));
+  }
+
+  try {
+    socket.user = jwt.verify(token, process.env.JWT_SECRET || 'secret123');
+    return next();
+  } catch (error) {
+    return next(new Error('Invalid or expired token'));
+  }
+});
+
+io.on('connection', (socket) => {
+  if (socket.user?.id) {
+    socket.join(`user:${socket.user.id}`);
+  }
+});
+
+app.set('io', io);
 
 // Import the promises-based version of Node.js's DNS module const 
 dns = require("node:dns/promises"); 
@@ -395,7 +439,7 @@ app.use((req, res) => {
 // 7. Connect to MongoDB & Start Server
 mongoose.connect(process.env.MONGO_URI)
     .then(() => {
-        app.listen(PORT, '0.0.0.0', () => {
+    server.listen(PORT, '0.0.0.0', () => {
             console.log(`Connected to DB, Server and Chatbot running on port ${PORT}`);
         });
     })

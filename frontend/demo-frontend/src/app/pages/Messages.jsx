@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { io } from 'socket.io-client';
 import { useWorkflow } from '../context/WorkflowContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
@@ -15,6 +16,45 @@ export function Messages() {
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
+  const [socket, setSocket] = useState(null);
+
+  const upsertConversationMessage = (nextMessage) => {
+    setConversation((prev) => {
+      const exists = prev.some((message) => message._id === nextMessage._id);
+      if (exists) {
+        return prev.map((message) => (message._id === nextMessage._id ? nextMessage : message));
+      }
+      return [...prev, nextMessage];
+    });
+  };
+
+  const upsertInboxEntry = (nextMessage) => {
+    if (!currentUser) return;
+
+    const senderId = typeof nextMessage.senderId === 'object' ? nextMessage.senderId?._id : nextMessage.senderId;
+    const recipientId = typeof nextMessage.recipientId === 'object' ? nextMessage.recipientId?._id : nextMessage.recipientId;
+    const partnerId = senderId === currentUser.id ? recipientId : senderId;
+
+    if (!partnerId) return;
+
+    const partnerUser = users.find((user) => user._id === partnerId);
+
+    setInbox((prev) => {
+      const existing = prev.find((item) => item.partnerId === partnerId);
+      const nextEntry = {
+        partnerId,
+        username: partnerUser?.username || existing?.username || '',
+        email: partnerUser?.email || existing?.email || '',
+        role: partnerUser?.role || existing?.role || '',
+        latestText: nextMessage.text,
+        latestAt: nextMessage.createdAt,
+        unreadCount: senderId === currentUser.id ? existing?.unreadCount || 0 : (selectedUser?._id === partnerId ? 0 : (existing?.unreadCount || 0) + 1),
+      };
+
+      const remaining = prev.filter((item) => item.partnerId !== partnerId);
+      return [nextEntry, ...remaining].sort((a, b) => new Date(b.latestAt) - new Date(a.latestAt));
+    });
+  };
 
   const filteredInbox = useMemo(
     () => {
@@ -134,10 +174,34 @@ export function Messages() {
   };
 
   useEffect(() => {
+    if (!currentUser) return undefined;
+
     loadInbox();
-    const interval = setInterval(loadInbox, 10000);
-    return () => clearInterval(interval);
-  }, [currentUser]);
+
+    const nextSocket = io(API_BASE_URL, {
+      withCredentials: true,
+      transports: ['websocket', 'polling'],
+    });
+
+    setSocket(nextSocket);
+
+    nextSocket.on('message:new', (nextMessage) => {
+      upsertInboxEntry(nextMessage);
+
+      const senderId = typeof nextMessage.senderId === 'object' ? nextMessage.senderId?._id : nextMessage.senderId;
+      const recipientId = typeof nextMessage.recipientId === 'object' ? nextMessage.recipientId?._id : nextMessage.recipientId;
+      const partnerId = senderId === currentUser.id ? recipientId : senderId;
+
+      if (selectedUser?._id === partnerId) {
+        upsertConversationMessage(nextMessage);
+      }
+    });
+
+    return () => {
+      nextSocket.disconnect();
+      setSocket(null);
+    };
+  }, [currentUser, selectedUser, users]);
 
   useEffect(() => {
     if (selectedUser || inbox.length === 0) return;
@@ -217,7 +281,7 @@ export function Messages() {
       if (!res.ok) {
         throw new Error(data.error || 'Failed to send message');
       }
-      setConversation((prev) => [...prev, data.data]);
+      upsertConversationMessage(data.data);
       setMessageText('');
     } catch (err) {
       setError(err?.message || 'Could not send message');

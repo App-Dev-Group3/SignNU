@@ -8,11 +8,17 @@ import {
   LogOut,
   Settings,
   MessageSquare,
+  X,
 } from 'lucide-react';
 import { useWorkflow } from '../context/WorkflowContext';
 import { Button } from './ui/button';
 
-export function Sidebar() {
+type SidebarProps = {
+  isOpen?: boolean;
+  onClose?: () => void;
+};
+
+export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { currentUser, logout } = useWorkflow();
@@ -42,10 +48,13 @@ export function Sidebar() {
   ];
 
   return (
-    <div className="w-64 bg-[#35408e] flex flex-col text-white">
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#35408e] flex flex-col text-white shadow-2xl transition-transform duration-300 ease-out md:static md:translate-x-0 md:shadow-none ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+      aria-label="Sidebar navigation"
+    >
 
       {/* HEADER */}
-      <div className="p-6 border-b border-white/10">
+      <div className="flex items-start justify-between gap-3 p-6 border-b border-white/10">
         <div className="flex items-center gap-3">
 
           <div className="w-10 h-10 bg-[#ffd41c] rounded-lg flex items-center justify-center shadow-md">
@@ -58,6 +67,16 @@ export function Sidebar() {
           </div>
 
         </div>
+
+        <Button
+          type="button"
+          onClick={onClose}
+          variant="ghost"
+          className="h-9 w-9 p-0 text-white hover:bg-white/10 md:hidden"
+          aria-label="Close sidebar"
+        >
+          <X className="h-5 w-5" />
+        </Button>
       </div>
 
       {/* USER INFO */}
@@ -134,6 +153,6 @@ export function Sidebar() {
 
       </div>
 
-    </div>
+    </aside>
   );
 }
