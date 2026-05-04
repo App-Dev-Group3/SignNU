@@ -3,6 +3,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const session = require('express-session');
+const multer = require('multer');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const approvalRoutes = require('./routes/route');
 const userRoutes = require('./routes/userRoutes');
 const formRoutes = require('./routes/formRoutes');
@@ -45,6 +47,37 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// =====================
+// Multer (in-memory upload) for PDF/file uploads
+// =====================
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+});
+
+// =====================
+// Gemini AI setup for chatbot
+// =====================
+const geminiKey = process.env.GEMINI_API_KEY;
+
+if (!geminiKey) {
+  console.warn("⚠️ GEMINI_API_KEY is missing in .env");
+}
+
+const genAI = new GoogleGenerativeAI(geminiKey || "");
+const model = genAI.getGenerativeModel({
+  model: "gemini-2.5-flash",
+});
+
+// =====================
+// Helper: safe response extraction
+// =====================
+const formatResponseContent = (text) => {
+  if (!text) return "";
+  if (typeof text === "string") return text;
+  return JSON.stringify(text);
+};
+
 // 2. Logging Middleware
 app.use((req, res, next) => {
     console.log(`${req.method} request to: ${req.path}`);
@@ -55,6 +88,128 @@ app.use((req, res, next) => {
 app.use('/api/approvals', approvalRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/forms', formRoutes);
+
+// =====================
+// Chatbot Route - POST /api/chat
+// =====================
+app.post("/api/chat", upload.single("pdf"), async (req, res) => {
+  try {
+    const userMessage = req.body.message;
+
+    if (!userMessage && !req.file) {
+      return res.status(400).json({ error: "No input provided" });
+    }
+
+    // =====================
+    // Build Gemini contents
+    // =====================
+    const parts = [];
+
+    if (userMessage) {
+      parts.push({
+        text: `
+You are a helpful assistant specialized in digital signatures.
+Answer strictly related to digital signature topics.
+
+User message:
+${userMessage}
+        `,
+      });
+    }
+
+    if (req.file) {
+      parts.push({
+        inlineData: {
+          mimeType: req.file.mimetype,
+          data: req.file.buffer.toString("base64"),
+        },
+      });
+    }
+
+    const contents = [
+      {
+        role: "user",
+        parts,
+      },
+    ];
+
+    // =====================
+    // Call Gemini
+    // =====================
+    const result = await model.generateContent({ contents });
+    const response = await result.response;
+
+    const aiReply = formatResponseContent(response.text()) || "No reply from AI";
+
+    return res.json({ reply: aiReply });
+  } catch (error) {
+    console.error("❌ Gemini Error:", error);
+    return res.status(500).json({
+      error: "Failed to get AI response",
+    });
+  }
+});
+
+// =====================
+// Summary Chat Route - POST /api/summary/chat
+// =====================
+app.post("/api/summary/chat", upload.single("pdf"), async (req, res) => {
+  try {
+    const userMessage = req.body.message;
+
+    if (!userMessage && !req.file) {
+      return res.status(400).json({ error: "No input provided" });
+    }
+
+    // =====================
+    // Build Gemini contents for summary
+    // =====================
+    const parts = [];
+
+    if (userMessage) {
+      parts.push({
+        text: `
+You are a helpful assistant specialized in summarizing documents and digital signatures.
+Provide a concise summary of the uploaded document or answer the user's question about it.
+
+User message:
+${userMessage}
+        `,
+      });
+    }
+
+    if (req.file) {
+      parts.push({
+        inlineData: {
+          mimeType: req.file.mimetype,
+          data: req.file.buffer.toString("base64"),
+        },
+      });
+    }
+
+    const contents = [
+      {
+        role: "user",
+        parts,
+      },
+    ];
+
+    // =====================
+    // Call Gemini
+    // =====================
+    const result = await model.generateContent({ contents });
+    const response = await result.response;
+
+    const aiReply = formatResponseContent(response.text()) || "No reply from AI";
+
+    return res.json({ reply: aiReply });
+  } catch (error) {
+    console.error("❌ Gemini Error:", error);
+    return res.status(500).json({
+      error: "Failed to get AI response",
+    });
+  }
+});
 
 // 4. Base Route
 app.get('/', (req, res) => {
@@ -75,8 +230,7 @@ app.use((req, res) => {
 mongoose.connect(process.env.MONGO_URI)
     .then(() => {
         app.listen(PORT, '0.0.0.0', () => {
-            console.log(`🚀 Connected to DB & Server running on port ${PORT}`);
-            console.log(`💬 For chatbot: Run 'node summary.js' on port 5000`);
+            console.log(`Connected to DB, Server and Chatbot running on port ${PORT}`);
         });
     })
     .catch((error) => {
