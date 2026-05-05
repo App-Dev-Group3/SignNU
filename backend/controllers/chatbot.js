@@ -23,9 +23,18 @@ export default function DigitalSignatureChat() {
 
     try {
       setLoading(true);
-      const res = await axios.post('http://localhost:4000/chat', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const API_URL =
+        import.meta.env.MODE === "development"
+        ? "http://localhost:4000"
+        : "https://signnu.onrender.com";
+
+      const res = await axios.post(
+        `${API_URL}/api/summary/chat`,
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        }
+      );
 
       // Add AI response
       setMessages([
