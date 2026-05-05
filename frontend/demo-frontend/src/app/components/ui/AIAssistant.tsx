@@ -13,7 +13,7 @@ interface Message {
 }
 
 export default function AIAssistant() {
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+  const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000").replace(/\/+$/, '');
   const [open, setOpen] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([
@@ -33,7 +33,12 @@ export default function AIAssistant() {
   useEffect(() => {
     const initializeConversation = async () => {
       try {
-        const res = await axios.post(`${API_BASE_URL}/api/summary/new`);
+        const token = localStorage.getItem('signnu_auth_token');
+        const res = await axios.post(`${API_BASE_URL}/api/summary/new`, {}, {
+          headers: {
+            ...(token && { 'Authorization': `Bearer ${token}` })
+          }
+        });
         setConversationId(res.data.conversationId);
       } catch (err) {
         console.error("Failed to initialize conversation:", err);
@@ -87,8 +92,12 @@ export default function AIAssistant() {
     setLoading(true);
 
     try {
+      const token = localStorage.getItem('signnu_auth_token');
       const res = await axios.post(`${API_BASE_URL}/api/summary/chat`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+        headers: {
+          "Content-Type": "multipart/form-data",
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
       });
 
       const aiMessage: Message = {
@@ -133,7 +142,12 @@ export default function AIAssistant() {
     
     // Create new conversation
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/summary/new`);
+      const token = localStorage.getItem('signnu_auth_token');
+      const res = await axios.post(`${API_BASE_URL}/api/summary/new`, {}, {
+        headers: {
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      });
       setConversationId(res.data.conversationId);
     } catch (err) {
       console.error("Failed to create new conversation:", err);
@@ -147,8 +161,15 @@ export default function AIAssistant() {
     // Clear PDF from backend conversation
     if (conversationId) {
       try {
+        const token = localStorage.getItem('signnu_auth_token');
         await axios.post(
-          `${API_BASE_URL}/api/summary/${conversationId}/clear-pdf`
+          `${API_BASE_URL}/api/summary/${conversationId}/clear-pdf`,
+          {},
+          {
+            headers: {
+              ...(token && { 'Authorization': `Bearer ${token}` })
+            }
+          }
         );
         console.log("PDF removed from server");
       } catch (err) {

@@ -9,7 +9,7 @@ export function AccountSettings() {
   const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
   const AUTH_TOKEN_KEY = 'signnu_auth_token';
 
-  const buildAuthHeaders = () => {
+  const buildAuthHeaders = (): Record<string, string> => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
