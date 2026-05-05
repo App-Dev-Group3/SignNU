@@ -106,8 +106,10 @@ app.use(
     }),
     cookie: {
       httpOnly: true,
+      // For cross-site deployments (frontend on different domain), set sameSite to 'none' and secure=true in production.
+      // For local development we keep 'lax' and secure=false to avoid issues with http://localhost.
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 60 * 60 * 1000, // 1 hour
     },
   })
