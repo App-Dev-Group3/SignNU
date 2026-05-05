@@ -20,12 +20,28 @@ const ALLOWED_ORIGINS = new Set(
     .flatMap((origin) => origin.split(',').map((value) => value.trim()))
 );
 
+const isOriginAllowed = (origin) => {
+  if (!origin) return true; // allow non-browser requests (curl, same-origin)
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  // Allow any Vercel preview/deploy subdomain (e.g. *.vercel.app)
+  try {
+    const host = new URL(origin).host;
+    if (host.endsWith('.vercel.app')) return true;
+  } catch (e) {
+    // ignore parse errors
+  }
+  return false;
+};
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 4000;
 const io = require('socket.io')(server, {
   cors: {
-    origin: Array.from(ALLOWED_ORIGINS),
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) return callback(null, true);
+      return callback(new Error('CORS blocked for socket origin'));
+    },
     credentials: true,
   },
 });
@@ -83,10 +99,7 @@ dns.setServers(["1.1.1.1", "8.8.8.8"]);
 // 2. ENABLE CORS (Place this before your routes!)
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || ALLOWED_ORIGINS.has(origin)) {
-      return callback(null, true);
-    }
-
+    if (isOriginAllowed(origin)) return callback(null, true);
     return callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
