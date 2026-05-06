@@ -3,7 +3,7 @@ import { SignatureCanvas } from "react-signature-canvas";
 import { useWorkflow } from "../context/WorkflowContext";
 
 const AUTH_TOKEN_KEY = 'signnu_auth_token';
-const buildAuthHeaders = () => {
+const buildAuthHeaders = (): Record<string, string> => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
     return token ? { Authorization: `Bearer ${token}` } : {};
 };

@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import { FileText, Upload, X } from 'lucide-react';
 import { PdfEditor, PdfAnnotation } from '../components/PdfEditor';
@@ -66,6 +66,9 @@ export function NewForm() {
   const [approvalRoleOptions, setApprovalRoleOptions] = useState<string[]>([]);
   const [approvalDepartmentOptions, setApprovalDepartmentOptions] = useState<string[]>([]);
   const [approvalSteps, setApprovalSteps] = useState<Array<{ id?: string; role: string; department: string; userId: string; userName: string }>>([]);
+  const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id?: string; role: string; department: string; userId: string; userName: string }>>([]);
+  const [formTemplates, setFormTemplates] = useState<Array<any>>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [userLoadError, setUserLoadError] = useState<string | null>(null);
   const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
   const [pdfAnnotations, setPdfAnnotations] = useState<PdfAnnotation[]>([]);
@@ -73,6 +76,10 @@ export function NewForm() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [generatedPdfUrl, setGeneratedPdfUrl] = useState('');
   const [draftCreated, setDraftCreated] = useState(false);
+  const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
+  const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
+  const [isLoadingPdfPreview, setIsLoadingPdfPreview] = useState(false);
+  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
 
   const isValidUrl = (value: string | undefined | null) => {
     if (!value) return false;
@@ -138,6 +145,138 @@ export function NewForm() {
 
     fetchUsers();
   }, [API_BASE_URL]);
+
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/templates`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        });
+        if (!response.ok) {
+          throw new Error('Failed to load templates');
+        }
+        const data = await response.json();
+        setFormTemplates(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error('Error loading templates:', error);
+      }
+    };
+
+    fetchTemplates();
+  }, [API_BASE_URL]);
+
+  const applySelectedTemplate = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+
+    if (!templateId) {
+      setAttachments([]);
+      setGeneratedPdfUrl('');
+      setTemplateApprovalSteps([]);
+      setApprovalSteps([]);
+      setFormType('');
+      return;
+    }
+
+    const template = formTemplates.find((item) => item.id === templateId);
+    if (!template) {
+      return;
+    }
+
+    const mappedTemplateSteps = (template.approvalSteps || []).map((step: any, index: number) => ({
+      id: step.id || `template-step-${Date.now()}-${index}`,
+      role: step.role || '',
+      department: step.department || '',
+      userId: step.userId || '',
+      userName: step.userName || '',
+    }));
+
+    setFormType(template.type);
+    setTitle(template.title);
+    setDescription(template.description);
+    setTemplateApprovalSteps(mappedTemplateSteps);
+    setApprovalSteps(mappedTemplateSteps);
+    setAttachments([
+      {
+        id: `template-${template.id}`,
+        name: template.title,
+        size: 0,
+        type: 'application/pdf',
+        url: template.pdfUrl,
+      },
+    ]);
+    setGeneratedPdfUrl(template.pdfUrl);
+    setPdfSourceFile(null);
+    setPdfAnnotations([]);
+  };
+
+  useEffect(() => {
+    if (!selectedTemplateId) {
+      return;
+    }
+
+    const template = formTemplates.find((item) => item.id === selectedTemplateId);
+    if (!template) {
+      return;
+    }
+
+    const mappedTemplateSteps = (template.approvalSteps || []).map((step: any, index: number) => ({
+      id: step.id || `template-step-${Date.now()}-${index}`,
+      role: step.role || '',
+      department: step.department || '',
+      userId: step.userId || '',
+      userName: step.userName || '',
+    }));
+
+    setTemplateApprovalSteps(mappedTemplateSteps);
+  }, [selectedTemplateId, formTemplates]);
+
+  useEffect(() => {
+    return () => {
+      if (pdfViewerUrl && pdfViewerUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(pdfViewerUrl);
+      }
+    };
+  }, [pdfViewerUrl]);
+
+  const previewPdf = async (pdfUrl: string) => {
+    setIsLoadingPdfPreview(true);
+    setPdfPreviewError(null);
+
+    try {
+      let inUrl: string | null = null;
+
+      if (pdfUrl.startsWith('data:')) {
+        const match = pdfUrl.match(/^data:(.+);base64,(.+)$/);
+        if (!match) throw new Error('Invalid data URL');
+        const bytes = Uint8Array.from(atob(match[2]), (c) => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: match[1] });
+        inUrl = URL.createObjectURL(blob);
+      } else if (pdfUrl.startsWith('blob:')) {
+        inUrl = pdfUrl;
+      } else {
+        const response = await fetch(pdfUrl);
+        if (!response.ok) throw new Error('Failed to fetch PDF for preview');
+        let blob = await response.blob();
+        if (blob.type !== 'application/pdf') {
+          blob = new Blob([blob], { type: 'application/pdf' });
+        }
+        inUrl = URL.createObjectURL(blob);
+      }
+
+      if (!inUrl) throw new Error('Unable to create preview URL');
+      if (pdfViewerUrl && pdfViewerUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(pdfViewerUrl);
+      }
+      setPdfViewerUrl(inUrl);
+      setIsPdfViewerOpen(true);
+    } catch (error: any) {
+      console.error('Preview PDF failed:', error);
+      setPdfPreviewError(error?.message || 'Unable to preview PDF');
+    } finally {
+      setIsLoadingPdfPreview(false);
+    }
+  };
 
   const handleSavePdf = async () => {
     if (!pdfSourceFile) {
@@ -250,7 +389,12 @@ export function NewForm() {
       return;
     }
 
-    if (!pdfSourceFile && attachments.length === 0) {
+    if (formTemplates.length > 0 && !selectedTemplateId) {
+      toast.error('Please select an admin-created form template');
+      return;
+    }
+
+    if (!selectedTemplateId && !pdfSourceFile && attachments.length === 0) {
       toast.error('Please upload a PDF document before submitting your request');
       return;
     }
@@ -441,6 +585,18 @@ export function NewForm() {
     ]);
   };
 
+  const applyTemplateApprovalChain = () => {
+    if (!selectedTemplateId || templateApprovalSteps.length === 0) {
+      return;
+    }
+
+    setApprovalSteps(templateApprovalSteps.map((step, index) => ({
+      ...step,
+      id: `template-step-${Date.now()}-${index}`,
+    })));
+    toast.success('Template default approval chain applied');
+  };
+
   const removeApprovalStep = (index: number) => {
     setApprovalSteps((prev) => prev.filter((_, idx) => idx !== index));
   };
@@ -451,8 +607,12 @@ export function NewForm() {
       return;
     }
 
+    if (selectedTemplateId) {
+      return;
+    }
+
     setApprovalSteps(buildApprovalSteps(formType));
-  }, [formType]);
+  }, [formType, selectedTemplateId]);
 
   useEffect(() => {
     if (!formType || approvalSteps.length === 0) {
@@ -493,22 +653,74 @@ export function NewForm() {
                   {userLoadError}
                 </div>
               )}
-              {/* Form Type */}
-              <div className="space-y-2">
-                <Label htmlFor="formType">Form Type *</Label>
-                <Select value={formType} onValueChange={(value) => setFormType(value as FormType)}>
-                  <SelectTrigger id="formType">
-                    <SelectValue placeholder="Select form type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formTypes.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {formTemplates.length > 0 ? (
+                <div className="space-y-2">
+                  <Label htmlFor="templateSelect">Request Template *</Label>
+                  <Select value={selectedTemplateId} onValueChange={(value) => applySelectedTemplate(value)}>
+                    <SelectTrigger id="templateSelect">
+                      <SelectValue placeholder="Select an admin-created form" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {formTemplates.map((template) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          {template.title} ({template.type})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedTemplateId && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                      <div className="font-medium">Selected template</div>
+                      <div>{formTemplates.find((template) => template.id === selectedTemplateId)?.description}</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const template = formTemplates.find((template) => template.id === selectedTemplateId);
+                            if (template?.pdfUrl) previewPdf(template.pdfUrl);
+                          }}
+                          disabled={isLoadingPdfPreview}
+                        >
+                          {isLoadingPdfPreview ? 'Loading preview...' : 'Preview template PDF'}
+                        </Button>
+
+                      </div>
+                      {templateApprovalSteps.length > 0 && (
+                        <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-800">
+                          <div className="font-medium">Admin default approval chain</div>
+                          <ul className="mt-2 space-y-2">
+                            {templateApprovalSteps.map((step, index) => (
+                              <li key={step.id} className="flex items-center gap-2">
+                                <span className="font-semibold">{index + 1}.</span>
+                                <span>{step.role}</span>
+                                {step.userName && <span className="text-slate-500">— {step.userName}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="formType">Form Type *</Label>
+                  <Select value={formType} onValueChange={(value) => setFormType(value as FormType)}>
+                    <SelectTrigger id="formType">
+                      <SelectValue placeholder="Select form type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {formTypes.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {type}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Title */}
               <div className="space-y-2">
@@ -584,9 +796,16 @@ export function NewForm() {
                       <Label>Approval Chain</Label>
                       <p className="text-sm text-gray-600">Pick the default chain or adjust it by adding/removing approval roles.</p>
                     </div>
-                    <Button type="button" variant="secondary" size="sm" onClick={addApprovalStep}>
-                      Add approval role
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedTemplateId && templateApprovalSteps.length > 0 && (
+                        <Button type="button" variant="outline" size="sm" onClick={applyTemplateApprovalChain}>
+                          Use template default chain
+                        </Button>
+                      )}
+                      <Button type="button" variant="secondary" size="sm" onClick={addApprovalStep}>
+                        Add approval role
+                      </Button>
+                    </div>
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-sm text-gray-600 mb-3">
@@ -668,112 +887,137 @@ export function NewForm() {
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label htmlFor="sourcePdf">Upload Document</Label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                  <p className="text-sm text-gray-600 mb-2">Upload the PDF you want to send for approval</p>
-                  <Input
-                    id="sourcePdf"
-                    type="file"
-                    accept="application/pdf"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      if (file && file.type !== 'application/pdf') {
-                        toast.error('Please select a PDF file');
-                        return;
-                      }
-                      setPdfSourceFile(file);
-                    }}
-                    className="hidden"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => document.getElementById('sourcePdf')?.click()}
-                  >
-                    Select PDF
-                  </Button>
-                  {pdfSourceFile && (
-                    <>
-                      <p className="text-xs text-gray-500 mt-2">{pdfSourceFile.name}</p>
+              {!selectedTemplateId && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="sourcePdf">Upload Document</Label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                      <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                      <p className="text-sm text-gray-600 mb-2">Upload the PDF you want to send for approval</p>
+                      <Input
+                        id="sourcePdf"
+                        type="file"
+                        accept="application/pdf"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null;
+                          if (file && file.type !== 'application/pdf') {
+                            toast.error('Please select a PDF file');
+                            return;
+                          }
+                          setPdfSourceFile(file);
+                        }}
+                        className="hidden"
+                      />
                       <Button
                         type="button"
-                        variant="secondary"
-                        size="sm"
-                        className="mt-2 border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100"
-                        onClick={() => setShowPdfEditor(true)}
+                        variant="outline"
+                        onClick={() => document.getElementById('sourcePdf')?.click()}
                       >
-                        Modify PDF
+                        Select PDF
                       </Button>
-                    </>
-                  )}
-                </div>
-              </div>
+                      {pdfSourceFile && (
+                        <>
+                          <p className="text-xs text-gray-500 mt-2">{pdfSourceFile.name}</p>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="mt-2 border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100"
+                            onClick={() => setShowPdfEditor(true)}
+                          >
+                            Modify PDF
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
 
-              <Dialog open={showPdfEditor} onOpenChange={setShowPdfEditor}>
-                <DialogContent className="w-full max-w-[90vw] sm:max-w-5xl max-h-[calc(100vh-6rem)] overflow-auto">
-                  <DialogHeader>
-                    <DialogTitle>Modify PDF</DialogTitle>
-                  </DialogHeader>
-                  {approvalSteps.length > 0 && (
-                    <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                      <p className="font-medium text-slate-900">Approval chain for this submission</p>
-                      <ul className="mt-2 space-y-2">
-                        {approvalSteps.map((step, index) => (
-                          <li key={index} className="flex flex-col gap-1">
-                            <span className="font-semibold">Step {index + 1}: {step.role || 'Untitled role'}</span>
-                            <span className="text-slate-600">{step.userName ? step.userName : 'No approver selected yet'}</span>
-                          </li>
-                        ))}
-                      </ul>
+                  <Dialog open={showPdfEditor} onOpenChange={setShowPdfEditor}>
+                    <DialogContent className="w-full max-w-[90vw] sm:max-w-5xl max-h-[calc(100vh-6rem)] overflow-auto">
+                      <DialogHeader>
+                        <DialogTitle>Modify PDF</DialogTitle>
+                      </DialogHeader>
+                      {approvalSteps.length > 0 && (
+                        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                          <p className="font-medium text-slate-900">Approval chain for this submission</p>
+                          <ul className="mt-2 space-y-2">
+                            {approvalSteps.map((step, index) => (
+                              <li key={index} className="flex flex-col gap-1">
+                                <span className="font-semibold">Step {index + 1}: {step.role || 'Untitled role'}</span>
+                                <span className="text-slate-600">{step.userName ? step.userName : 'No approver selected yet'}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {pdfSourceFile && (
+                        <PdfEditor
+                          file={pdfSourceFile}
+                          annotations={pdfAnnotations}
+                          onChange={setPdfAnnotations}
+                          onClose={() => setShowPdfEditor(false)}
+                          isSaving={isGeneratingPdf}
+                          currentUserId={currentUser.id}
+                          currentUserSignatureURL={currentUser.signatureURL ?? null}
+                          approvalSteps={approvalSteps}
+                        />
+                      )}
+                    </DialogContent>
+                  </Dialog>
+
+                  {generatedPdfUrl && (
+                    <div className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-4">
+                      <p className="text-sm text-green-900">Generated PDF ready.</p>
                     </div>
                   )}
-                  {pdfSourceFile && (
-                    <PdfEditor
-                      file={pdfSourceFile}
-                      annotations={pdfAnnotations}
-                      onChange={setPdfAnnotations}
-                      onClose={() => setShowPdfEditor(false)}
-                      isSaving={isGeneratingPdf}
-                      currentUserId={currentUser.id}
-                      currentUserSignatureURL={currentUser.signatureURL ?? null}
-                      approvalSteps={approvalSteps}
-                    />
-                  )}
-                </DialogContent>
-              </Dialog>
 
-              {generatedPdfUrl && (
-                <div className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-4">
-                  <p className="text-sm text-green-900">Generated PDF ready.</p>
-                  {/* <a
-                    href={generatedPdfUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm text-blue-700 underline"
-                  >
-                    View saved PDF
-                  </a> */}
-                </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4">
+                    <Button
+                      type="button"
+                      variant="default"
+                      className="mt-4 w-full sm:w-auto px-6"
+                      onClick={handleSavePdf}
+                      disabled={isGeneratingPdf}
+                    >
+                      {isGeneratingPdf ? 'Saving PDF...' : 'Save PDF'}
+                    </Button>
+                    <p className="text-xs text-gray-500 mt-3 sm:mt-0">
+                      Save the edited PDF before submitting your request.
+                    </p>
+                  </div>
+                </>
               )}
-
-              <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4">
-                <Button
-                  type="button"
-                  variant="default"
-                  className="mt-4 w-full sm:w-auto px-6"
-                  onClick={handleSavePdf}
-                  disabled={isGeneratingPdf}
-                >
-                  {isGeneratingPdf ? 'Saving PDF...' : 'Save PDF'}
-                </Button>
-                <p className="text-xs text-gray-500 mt-3 sm:mt-0">
-                  Save the edited PDF before submitting your request.
-                </p>
-              </div>
             </CardContent>
           </Card>
+
+          <Dialog
+            open={isPdfViewerOpen}
+            onOpenChange={(open) => {
+              setIsPdfViewerOpen(open);
+              if (!open && pdfViewerUrl && pdfViewerUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(pdfViewerUrl);
+                setPdfViewerUrl(null);
+              }
+            }}
+          >
+            <DialogContent className="w-full max-w-[90vw] sm:max-w-5xl max-h-[calc(100vh-6rem)] overflow-auto p-0">
+              <div className="flex h-full flex-col bg-white">
+                <DialogHeader className="px-6 py-4 border-b">
+                  <DialogTitle>Preview PDF</DialogTitle>
+                  <DialogDescription>Preview the selected template document in read-only mode.</DialogDescription>
+                </DialogHeader>
+                <div className="flex-1 overflow-auto">
+                  {pdfViewerUrl ? (
+                    <iframe src={pdfViewerUrl} title="PDF Preview" className="w-full h-[80vh] border-0" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center p-6 text-sm text-gray-500">
+                      No PDF available for preview.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Actions */}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">

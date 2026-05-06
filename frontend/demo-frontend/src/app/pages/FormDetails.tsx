@@ -279,7 +279,7 @@ export function FormDetails() {
   const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
   const AUTH_TOKEN_KEY = 'signnu_auth_token';
 
-  const buildAuthHeaders = () => {
+  const buildAuthHeaders = (): Record<string, string> => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
@@ -292,9 +292,13 @@ export function FormDetails() {
   useEffect(() => {
     const loadUsers = async () => {
       try {
+        const headers = new Headers({ 'Content-Type': 'application/json' });
+        Object.entries(buildAuthHeaders()).forEach(([key, value]) => {
+          if (value) headers.set(key, value);
+        });
         const res = await fetch(`${API_BASE_URL}/api/users`, {
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+          headers,
         });
         if (!res.ok) {
           const text = await res.text();
@@ -540,16 +544,46 @@ export function FormDetails() {
   const previewPdfAttachment = async (pdfUrl: string) => {
     setIsLoadingPdf(true);
     try {
-      const res = await fetch(pdfUrl);
-      if (!res.ok) {
-        throw new Error('Failed to load PDF');
+      let blobUrl: string | null = null;
+
+      if (pdfUrl.startsWith('data:')) {
+        const match = pdfUrl.match(/^data:(.+);base64,(.+)$/);
+        if (!match) {
+          throw new Error('Invalid data URL for PDF');
+        }
+        const mimeType = match[1];
+        const data = match[2];
+        const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: mimeType || 'application/pdf' });
+        blobUrl = URL.createObjectURL(blob);
+      } else if (pdfUrl.startsWith('blob:')) {
+        blobUrl = pdfUrl;
+      } else {
+        try {
+          const res = await fetch(pdfUrl);
+          if (!res.ok) {
+            throw new Error('Failed to load PDF');
+          }
+          let blob = await res.blob();
+          if (blob.type !== 'application/pdf') {
+            blob = new Blob([blob], { type: 'application/pdf' });
+          }
+          blobUrl = URL.createObjectURL(blob);
+        } catch (fetchError) {
+          console.warn('PDF fetch failed, falling back to direct URL if available:', fetchError);
+          if (pdfUrl.startsWith('http://') || pdfUrl.startsWith('https://')) {
+            blobUrl = pdfUrl;
+          } else {
+            throw fetchError;
+          }
+        }
       }
-      let blob = await res.blob();
-      if (blob.type !== 'application/pdf') {
-        blob = new Blob([blob], { type: 'application/pdf' });
+
+      if (!blobUrl) {
+        throw new Error('Unable to build PDF preview URL');
       }
-      const blobUrl = URL.createObjectURL(blob);
-      if (selectedPdfUrl) {
+
+      if (selectedPdfUrl && selectedPdfUrl.startsWith('blob:')) {
         URL.revokeObjectURL(selectedPdfUrl);
       }
       setSelectedPdfUrl(blobUrl);
