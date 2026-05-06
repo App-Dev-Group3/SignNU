@@ -33,14 +33,20 @@ export function Admin() {
   const [users, setUsers] = useState<Array<any>>([]);
   const [accountRequests, setAccountRequests] = useState<Array<any>>([]);
   const [templates, setTemplates] = useState<Array<any>>([]);
+  const [managedRoles, setManagedRoles] = useState<Array<{ id: string; name: string }>>([]);
+  const [roleName, setRoleName] = useState('');
+  const [editingRoleId, setEditingRoleId] = useState('');
+  const [isSavingRole, setIsSavingRole] = useState(false);
+  const [roleError, setRoleError] = useState<string | null>(null);
   const [templateTitle, setTemplateTitle] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
   const [templateType, setTemplateType] = useState<FormType | ''>('');
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [editingTemplateId, setEditingTemplateId] = useState<string>('');
-  const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id: string; role: string; userId: string; userName: string }>>([
-    { id: 'step-0', role: '', userId: '', userName: '' },
+  const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id: string; role: string; department: string; userId: string; userName: string }>>([
+    { id: 'step-0', role: '', department: '', userId: '', userName: '' },
   ]);
+  const [templateDepartmentOptions, setTemplateDepartmentOptions] = useState<string[]>([]);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
@@ -64,7 +70,7 @@ export function Admin() {
     setIsLoading(true);
     setError(null);
     try {
-      const [usersRes, requestsRes, templatesRes] = await Promise.all([
+      const [usersRes, requestsRes, templatesRes, rolesRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/users`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
@@ -77,22 +83,35 @@ export function Admin() {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         }),
+        fetch(`${API_BASE_URL}/api/roles`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        }),
       ]);
 
-      if (!usersRes.ok || !requestsRes.ok || !templatesRes.ok) {
+      if (!usersRes.ok || !requestsRes.ok || !templatesRes.ok || !rolesRes.ok) {
         const errorParts = [];
         if (!usersRes.ok) errorParts.push(`users(${usersRes.status})`);
         if (!requestsRes.ok) errorParts.push(`requests(${requestsRes.status})`);
         if (!templatesRes.ok) errorParts.push(`templates(${templatesRes.status})`);
+        if (!rolesRes.ok) errorParts.push(`roles(${rolesRes.status})`);
         throw new Error(`Failed to load: ${errorParts.join(', ')}`);
       }
 
       const usersData = await usersRes.json();
       const requestsData = await requestsRes.json();
       const templatesData = await templatesRes.json();
+      const rolesData = await rolesRes.json();
       setUsers(usersData);
       setAccountRequests(requestsData);
       setTemplates(Array.isArray(templatesData) ? templatesData : []);
+      setManagedRoles(Array.isArray(rolesData) ? rolesData.map((role) => ({ id: role.id || role._id, name: role.name || role })) : []);
+      const departmentList = usersData
+        .map((user: any) => String(user.department || ''))
+        .filter((dept: string) => dept.trim());
+      setTemplateDepartmentOptions(
+        Array.from(new Set(departmentList)).sort() as string[]
+      );
     } catch (err) {
       setError('Unable to load users or account requests.');
     } finally {
@@ -135,6 +154,68 @@ export function Admin() {
       setError('Could not update department');
     }
   };
+
+  const saveRole = async () => {
+    if (!roleName.trim()) {
+      setRoleError('Role name is required.');
+      return;
+    }
+    setIsSavingRole(true);
+    setRoleError(null);
+
+    try {
+      const url = editingRoleId ? `${API_BASE_URL}/api/roles/${editingRoleId}` : `${API_BASE_URL}/api/roles`;
+      const method = editingRoleId ? 'PUT' : 'POST';
+      const response = await fetch(url, {
+        method,
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        body: JSON.stringify({ name: roleName.trim() }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || `Failed to ${editingRoleId ? 'update' : 'create'} role`);
+      }
+      const savedRole = await response.json();
+      setManagedRoles((prev) => {
+        if (editingRoleId) {
+          return prev.map((role) => (role.id === savedRole.id ? savedRole : role));
+        }
+        return [savedRole, ...prev];
+      });
+      setRoleName('');
+      setEditingRoleId('');
+    } catch (err: any) {
+      setRoleError(err?.message || 'Unable to save role');
+    } finally {
+      setIsSavingRole(false);
+    }
+  };
+
+  const editRole = (roleId: string) => {
+    const role = managedRoles.find((item) => item.id === roleId);
+    if (!role) return;
+    setEditingRoleId(role.id);
+    setRoleName(role.name);
+  };
+
+  const deleteRole = async (roleId: string) => {
+    const confirmed = window.confirm('Delete this role? This will remove it from the managed list.');
+    if (!confirmed) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/roles/${roleId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      });
+      if (!response.ok) throw new Error('Failed to delete role');
+      setManagedRoles((prev) => prev.filter((role) => role.id !== roleId));
+    } catch (err) {
+      setError('Could not delete role');
+    }
+  };
+
+  const roleOptions = managedRoles.length > 0 ? managedRoles.map((r) => r.name) : roles;
 
   const approveRequest = async (requestId: string) => {
     try {
@@ -203,11 +284,11 @@ export function Admin() {
   const addTemplateStep = () => {
     setTemplateApprovalSteps((prev) => [
       ...prev,
-      { id: `step-${Date.now()}`, role: '', userId: '', userName: '' },
+      { id: `step-${Date.now()}`, role: '', department: '', userId: '', userName: '' },
     ]);
   };
 
-  const updateTemplateStep = (index: number, key: 'role' | 'userId', value: string) => {
+  const updateTemplateStep = (index: number, key: 'role' | 'department' | 'userId', value: string) => {
     setTemplateApprovalSteps((prev) =>
       prev.map((step, idx) => {
         if (idx !== index) return step;
@@ -293,7 +374,7 @@ export function Admin() {
       setTemplateDescription('');
       setTemplateType('');
       setTemplateFile(null);
-      setTemplateApprovalSteps([{ id: 'step-0', role: '', userId: '', userName: '' }]);
+      setTemplateApprovalSteps([{ id: 'step-0', role: '', department: '', userId: '', userName: '' }]);
       setEditingTemplateId('');
       setTemplateError(null);
     } catch (err: any) {
@@ -490,6 +571,70 @@ export function Admin() {
 
         <Card className="mt-6">
           <CardHeader>
+            <CardTitle>Managed Roles</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3 items-end">
+                <div className="md:col-span-2 space-y-2">
+                  <Label htmlFor="roleName">Role Name</Label>
+                  <Input
+                    id="roleName"
+                    value={roleName}
+                    onChange={(e) => setRoleName(e.target.value)}
+                    placeholder="e.g. Department Head"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={saveRole} disabled={isSavingRole}>
+                    {isSavingRole ? (editingRoleId ? 'Updating...' : 'Saving...') : (editingRoleId ? 'Update Role' : 'Add Role')}
+                  </Button>
+                  {editingRoleId && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setEditingRoleId('');
+                        setRoleName('');
+                        setRoleError(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {roleError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {roleError}
+                </div>
+              )}
+
+              {managedRoles.length === 0 ? (
+                <p className="text-sm text-gray-600">No managed roles created yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {managedRoles.map((role) => (
+                    <div key={role.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3">
+                      <span className="text-sm text-gray-900">{role.name}</span>
+                      <div className="flex gap-2">
+                        <Button size="sm" type="button" onClick={() => editRole(role.id)}>
+                          Edit
+                        </Button>
+                        <Button size="sm" variant="destructive" type="button" onClick={() => deleteRole(role.id)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
             <CardTitle>Form Request Templates</CardTitle>
           </CardHeader>
           <CardContent>
@@ -557,11 +702,33 @@ export function Admin() {
                     <div key={step.id} className="grid gap-3 md:grid-cols-[1fr_1fr_auto] items-end">
                       <div className="space-y-2">
                         <Label>Role</Label>
-                        <Input
-                          value={step.role}
-                          onChange={(e) => updateTemplateStep(index, 'role', e.target.value)}
-                          placeholder="Approval role"
-                        />
+                        <Select value={step.role} onValueChange={(value) => updateTemplateStep(index, 'role', value)}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select approval role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {roleOptions.map((role) => (
+                              <SelectItem key={role} value={role}>
+                                {role}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Department</Label>
+                        <Select value={step.department} onValueChange={(value) => updateTemplateStep(index, 'department', value)}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select department" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {templateDepartmentOptions.map((department) => (
+                              <SelectItem key={department} value={department}>
+                                {department}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="space-y-2">
                         <Label>Approver</Label>
@@ -613,7 +780,7 @@ export function Admin() {
                       setTemplateDescription('');
                       setTemplateType('');
                       setTemplateFile(null);
-                      setTemplateApprovalSteps([{ id: 'step-0', role: '', userId: '', userName: '' }]);
+                      setTemplateApprovalSteps([{ id: 'step-0', role: '', department: '', userId: '', userName: '' }]);
                       setTemplateError(null);
                     }}
                   >
@@ -773,7 +940,7 @@ export function Admin() {
                             className="border rounded-lg px-3 py-2"
                             disabled={user._id === currentUser.id}
                           >
-                            {roles.map((role) => (
+                            {roleOptions.map((role) => (
                               <option key={role} value={role}>{role}</option>
                             ))}
                           </select>

@@ -38,6 +38,7 @@ const normalizeApprovalSteps = (steps) => {
     .map((step, index) => ({
       id: step.id || `step-${Date.now()}-${index}`,
       role: step.role,
+      department: step.department || '',
       userId: step.userId,
       userName: step.userName,
       status: step.status || 'pending',

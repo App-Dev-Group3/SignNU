@@ -6,6 +6,7 @@ const { Resend } = require('resend');
 const User = require('../models/user.js');
 const AccountRequest = require('../models/accountRequest.js');
 const { validateAccountRequest } = require('../models/accountRequest.js');
+const Role = require('../models/role.js');
 const cloudinary = require('cloudinary').v2;
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -579,28 +580,18 @@ const updateUser = async (req, res) => {
 const updateUserRole = async (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
-    const validRoles = [
-        'Department Head',
-        'Dean',
-        'Faculty',
-        'Staff',
-        'Student',
-        'Finance Officer',
-        'Procurement Officer',
-        'VP for Academics',
-        'VP for Finance',
-        'Requester',
-        'Signatory',
-        'Reviewer',
-        'Admin',
-    ];
 
-    if (!role || !validRoles.includes(role)) {
+    if (!role || !role.trim()) {
         return res.status(400).json({ error: 'Invalid role' });
     }
 
     try {
-        const user = await User.findByIdAndUpdate(id, { role }, { new: true, runValidators: true }).select('-password');
+        const roleExists = await Role.exists({ name: role.trim() });
+        if (!roleExists) {
+            return res.status(400).json({ error: 'Invalid role' });
+        }
+
+        const user = await User.findByIdAndUpdate(id, { role: role.trim() }, { new: true, runValidators: true }).select('-password');
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
@@ -776,6 +767,11 @@ const deleteUser = async (req, res) => {
 
 const getAvailableRoles = async (_req, res) => {
     try {
+        const managedRoles = await Role.find({}).sort({ name: 1 });
+        if (managedRoles.length > 0) {
+            return res.status(200).json(managedRoles.map((role) => role.name));
+        }
+
         const roles = await User.distinct('role', { isApproved: true });
         const filteredRoles = roles
             .filter(role => role && role.trim() && role !== 'Student')

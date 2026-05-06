@@ -486,30 +486,31 @@ export function NewForm() {
     const targetRole = normalizeRole(role);
     const targetDepartment = normalizeDepartment(department);
 
-    // Strict matching: must match both role AND department, no fallback
-    if (!targetRole.trim() || !targetDepartment.trim()) {
+    if (!targetRole.trim()) {
       return null;
     }
 
-    return availableUsers.find((user) =>
-      normalizeRole(user.role) === targetRole &&
-      normalizeDepartment(user.department || '') === targetDepartment
-    ) ?? null;
+    const roleMatches = availableUsers.filter((user) => normalizeRole(user.role) === targetRole);
+    if (targetDepartment.trim()) {
+      return roleMatches.find((user) => normalizeDepartment(user.department || '') === targetDepartment) ?? null;
+    }
+    return roleMatches[0] ?? null;
   };
 
   const getApproverOptions = (role: string, department: string) => {
-    // Strict matching: must match both role AND department, no fallback
-    if (!role.trim() || !department.trim()) {
+    if (!role.trim()) {
       return [];
     }
 
     const targetRole = normalizeRole(role);
     const targetDepartment = normalizeDepartment(department);
+    const roleMatches = availableUsers.filter((user) => normalizeRole(user.role) === targetRole);
 
-    return availableUsers.filter((user) =>
-      normalizeRole(user.role) === targetRole &&
-      normalizeDepartment(user.department || '') === targetDepartment
-    );
+    if (!targetDepartment.trim()) {
+      return roleMatches;
+    }
+
+    return roleMatches.filter((user) => normalizeDepartment(user.department || '') === targetDepartment);
   };
 
   const hasExactApproverForStep = (role: string, department: string) => {
