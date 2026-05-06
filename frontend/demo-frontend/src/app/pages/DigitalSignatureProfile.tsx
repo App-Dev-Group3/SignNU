@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SignatureCanvas } from "react-signature-canvas";
 import { Button } from "../components/ui/button";
-import  "../../styles/sign-design.css";
 import {
   Card,
   CardContent,
