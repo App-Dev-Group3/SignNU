@@ -1,67 +1,70 @@
 import { useEffect, useRef, useState } from "react";
 import { SignatureCanvas } from "react-signature-canvas";
+import { Button } from "../components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
 import { useWorkflow } from "../context/WorkflowContext";
 
-const AUTH_TOKEN_KEY = 'signnu_auth_token';
+const AUTH_TOKEN_KEY = "signnu_auth_token";
 const buildAuthHeaders = (): Record<string, string> => {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
-    return token ? { Authorization: `Bearer ${token}` } : {};
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-// SignaturePad component allows users to draw their signature
-function SignaturePad({ onSignatureChange, onSignatureData }: { 
-    onSignatureChange: (hasSignature: boolean) => void;
-    onSignatureData: (dataURL: string) => void;
-    }) {
+function SignaturePad({ onSignatureChange, onSignatureData }: {
+  onSignatureChange: (hasSignature: boolean) => void;
+  onSignatureData: (dataURL: string) => void;
+}) {
+  const sigCanvasRef = useRef<SignatureCanvas>(null);
 
-    // Ref to access the SignatureCanvas instance for clearing and getting dataURL of the drawn signature
-    const sigCanvasRef = useRef<SignatureCanvas>(null);
+  const clearSignature = () => {
+    sigCanvasRef.current?.clear();
+    onSignatureChange(false);
+    onSignatureData("");
+  };
 
-    const clearSignature = () => {
-        sigCanvasRef.current?.clear();
-        onSignatureChange?.(false);
-        onSignatureData?.("");
-    };
+  const handleEnd = () => {
+    if (sigCanvasRef.current && !sigCanvasRef.current.isEmpty()) {
+      onSignatureChange(true);
+      onSignatureData(sigCanvasRef.current.toDataURL());
+    }
+  };
 
-    const handleEnd = () => {
-        if (sigCanvasRef.current && !sigCanvasRef.current.isEmpty()) {
-            onSignatureChange?.(true);
-            onSignatureData?.(sigCanvasRef.current.toDataURL());
-        }  
-    };
-
-    return (
-        <div style={{ padding: "20px" }}>
-        <h2>Signature Pad</h2>
-
-        <div
-            style={{
-            border: "1px solid #ccc",
-            width: "400px",
-            height: "200px",
-            marginBottom: "10px",
-            }}
-        >
-            <SignatureCanvas
+  return (
+    <Card className="border-dashed border-slate-200">
+      <CardHeader className="items-start gap-2">
+        <div>
+          <CardTitle>Draw your signature</CardTitle>
+          <CardDescription>Use a mouse, stylus, or finger to sign directly in the pad.</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <SignatureCanvas
             ref={sigCanvasRef}
             penColor="black"
             canvasProps={{
-                width: 400,
-                height: 200,
-                className: "signature-canvas",
+              width: 420,
+              height: 220,
+              className: "h-[220px] w-full rounded-xl bg-white",
             }}
-
-            // Call handleEnd when the user finishes drawing to update the signature data and state
             onEnd={handleEnd}
-            />
+          />
         </div>
-
-        <button onClick={clearSignature} style={{ marginRight: "10px" }}>
-            Clear
-        </button>
-
-        </div>
-    );
+      </CardContent>
+      <CardFooter>
+        <Button variant="outline" size="sm" onClick={clearSignature}>
+          Reset drawing
+        </Button>
+      </CardFooter>
+    </Card>
+  );
 }
 
 // UploadSignature component allows users to upload an image file as their signature
@@ -91,9 +94,13 @@ function UploadSignature( { onFileChange, onFileData }: {
     };
 
     const clearFile = () => {
+        if (preview) {
+            URL.revokeObjectURL(preview);
+        }
+
         setPreview("");
         onFileChange(false);
-        onFileData?.(null);
+        onFileData(null);
 
         if (inputRef.current) {
             inputRef.current.value = "";
@@ -101,38 +108,68 @@ function UploadSignature( { onFileChange, onFileData }: {
     };
 
     return (
-        <div style={{ padding: "20px" }}>
-            <input type="file" accept="image/png, image/jpeg" onChange={previewSignature} ref={inputRef} />
-            <button onClick={clearFile}>Clear File</button>
-
-            {preview && (
-                <div style={{ marginTop: "20px" }}>
-                <h3>Signature Preview</h3>
-                <img
-                    src={preview}
-                    style={{ border: "1px solid #ccc", maxWidth: "400px" }}
-                />
+        <Card className="border-dashed border-slate-200">
+            <CardHeader className="items-start gap-2">
+                <div>
+                    <CardTitle>Upload signature image</CardTitle>
+                    <CardDescription>Supported formats: PNG or JPG.</CardDescription>
                 </div>
-            )}
-        </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <input
+                    ref={inputRef}
+                    type="file"
+                    accept="image/png, image/jpeg"
+                    onChange={previewSignature}
+                    className="file:border-0 file:bg-primary file:text-primary-foreground file:px-4 file:py-2 file:mr-4 file:rounded-lg file:font-medium"
+                />
+
+                {preview ? (
+                    <div className="space-y-3">
+                        <p className="text-sm font-medium">Signature preview</p>
+                        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white p-3">
+                            <img
+                                src={preview}
+                                alt="Uploaded signature preview"
+                                className="h-[180px] w-full object-contain"
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-muted-foreground">
+                        Select a signature file to preview it here before saving.
+                    </div>
+                )}
+            </CardContent>
+            <CardFooter>
+                <Button variant="outline" size="sm" onClick={clearFile}>
+                    Clear uploaded file
+                </Button>
+            </CardFooter>
+        </Card>
     );
 }
 
 // SubmitForm component handles the submission of either the drawn signature or the uploaded file to the backend API
-function SubmitForm({ 
-    hasSignature, hasFile,
-    signatureDataURL, uploadedFile,
-    apiBaseURL, userID,
+function SubmitForm({
+    hasSignature,
+    hasFile,
+    signatureDataURL,
+    uploadedFile,
+    apiBaseURL,
+    userID,
     setCurrentUserSignature,
-    }: { 
-    hasSignature: boolean; hasFile: boolean; 
-    signatureDataURL: string | null; uploadedFile: File | null; 
-    apiBaseURL: string; userID: string;
+}: {
+    hasSignature: boolean;
+    hasFile: boolean;
+    signatureDataURL: string | null;
+    uploadedFile: File | null;
+    apiBaseURL: string;
+    userID: string;
     setCurrentUserSignature: (signatureURL: string) => void;
-    }) {
+}) {
 
     const uploadSignature = async () => {
-
         if (hasSignature && hasFile) {
             alert("Please clear the signature pad or remove the uploaded file before submitting.");
             return;
@@ -140,14 +177,13 @@ function SubmitForm({
             alert("Please provide a signature either by drawing or uploading.");
             return;
         }
-        
+
         try {
             const formData = new FormData();
 
             if (hasSignature && signatureDataURL) {
                 formData.append("signatureData", signatureDataURL);
-            }
-            else if (hasFile && uploadedFile) {
+            } else if (hasFile && uploadedFile) {
                 formData.append("signatureFile", uploadedFile);
             }
 
@@ -176,14 +212,36 @@ function SubmitForm({
         } catch (error) {
             console.error('Signature upload error:', error);
             alert('Unable to upload signature. Please try a PNG/JPG image.');
-            return;
         }
     };
 
+    const buttonDisabled = (!hasSignature && !hasFile) || (hasSignature && hasFile);
+    const statusMessage = hasSignature && hasFile
+        ? "Clear one option before saving. Only one source can be submitted at a time."
+        : !hasSignature && !hasFile
+            ? "Choose a signature file or draw your signature to enable saving."
+            : "Ready to save your updated signature.";
+
     return (
-        <div style={{ padding: "20px" }}>
-            <button onClick={uploadSignature}>Submit Form</button>    
-        </div>
+        <Card>
+            <CardHeader className="items-start gap-2">
+                <div>
+                    <CardTitle>Save signature</CardTitle>
+                    <CardDescription>Submit the signature you chose to store it on your profile.</CardDescription>
+                </div>
+            </CardHeader>
+            <CardContent>
+                <p className="text-sm text-muted-foreground">{statusMessage}</p>
+            </CardContent>
+            <CardFooter className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Button onClick={uploadSignature} disabled={buttonDisabled} className="w-full sm:w-auto">
+                    Save signature
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                    Only one signature source can be submitted at once.
+                </span>
+            </CardFooter>
+        </Card>
     );
 }
 
@@ -231,55 +289,70 @@ function DigitalSignatureProfile() {
     };
 
     return (
-        <div style={{ padding: '20px' }}>
-            <h1>Modify Signature</h1>
-            <p style={{ marginBottom: '20px' }}>
-                Upload your signature image here. If you prefer, you can still draw your signature below.
-            </p>
-
-            {currentUser.signatureURL ? (
-                <div style={{ marginBottom: '20px', padding: '16px', border: '1px solid #ddd', borderRadius: '12px', maxWidth: '420px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <h2 style={{ margin: 0 }}>Current Uploaded Signature</h2>
-                        <button onClick={clearCurrentSignature} style={{ padding: '8px 12px', border: '1px solid #ccc', borderRadius: '8px', background: '#fff', cursor: 'pointer' }}>
-                            Clear Saved Signature
-                        </button>
-                    </div>
-                    <img
-                        src={currentUser.signatureURL}
-                        alt="Current uploaded signature"
-                        style={{ width: '100%', maxWidth: '400px', border: '1px solid #ccc', borderRadius: '8px' }}
-                    />
-                </div>
-            ) : (
-                <div style={{ marginBottom: '20px', color: '#555' }}>
-                    <strong>No uploaded signature found yet.</strong> Use the upload field below to add one.
-                </div>
-            )}
-
-            <UploadSignature
-                onFileChange={setHasFile}
-                onFileData={setUploadedFile}
-            />
-
-            <div style={{ marginTop: '40px', marginBottom: '20px' }}>
-                <p style={{ fontWeight: '600' }}>Or draw your signature</p>
+        <div className="mx-auto max-w-6xl space-y-8 px-4 py-6 sm:px-6 lg:px-8">
+            <div className="space-y-2">
+                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-primary">Signature settings</p>
+                <h1 className="scroll-m-20 text-3xl font-bold tracking-tight">Digital Signature Profile</h1>
+                <p className="max-w-3xl text-base text-muted-foreground">
+                    Upload a new signature image or draw your signature on the pad. Your saved signature is used when signing forms and documents.
+                </p>
             </div>
 
-            <SignaturePad 
-                onSignatureChange={setHasSignature}
-                onSignatureData={setSignatureDataURL}
-            />
+            <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
+                <div className="space-y-6">
+                    <Card>
+                        <CardHeader className="items-center gap-2">
+                            <div>
+                                <CardTitle>Current saved signature</CardTitle>
+                                <CardDescription>Preview your currently stored signature.</CardDescription>
+                            </div>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={clearCurrentSignature}
+                                disabled={!currentUser.signatureURL}
+                            >
+                                Clear saved signature
+                            </Button>
+                        </CardHeader>
+                        <CardContent>
+                            {currentUser.signatureURL ? (
+                                <div className="space-y-4">
+                                    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                                        <img
+                                            src={currentUser.signatureURL}
+                                            alt="Current uploaded signature"
+                                            className="h-56 w-full object-contain"
+                                        />
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                        Your current signature is ready to use across SignNU.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-muted-foreground">
+                                    No uploaded signature found yet. Upload an image or draw below to save your signature.
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
 
-            <SubmitForm 
-                hasSignature={hasSignature} 
-                hasFile={hasFile} 
-                signatureDataURL={signatureDataURL}
-                uploadedFile={uploadedFile}
-                apiBaseURL={apiBaseURL}
-                userID={userID}
-                setCurrentUserSignature={setCurrentUserSignature}
-            />
+                    <div className="grid gap-6 lg:grid-cols-2">
+                        <UploadSignature onFileChange={setHasFile} onFileData={setUploadedFile} />
+                        <SignaturePad onSignatureChange={setHasSignature} onSignatureData={setSignatureDataURL} />
+                    </div>
+                </div>
+
+                <SubmitForm
+                    hasSignature={hasSignature}
+                    hasFile={hasFile}
+                    signatureDataURL={signatureDataURL}
+                    uploadedFile={uploadedFile}
+                    apiBaseURL={apiBaseURL}
+                    userID={userID}
+                    setCurrentUserSignature={setCurrentUserSignature}
+                />
+            </div>
         </div>
     );
 }
