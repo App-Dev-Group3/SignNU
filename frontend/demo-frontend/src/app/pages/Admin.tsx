@@ -46,7 +46,6 @@ export function Admin() {
   const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id: string; role: string; department: string; userId: string; userName: string }>>([
     { id: 'step-0', role: '', department: '', userId: '', userName: '' },
   ]);
-  const [templateDepartmentOptions, setTemplateDepartmentOptions] = useState<string[]>([]);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
@@ -106,12 +105,7 @@ export function Admin() {
       setAccountRequests(requestsData);
       setTemplates(Array.isArray(templatesData) ? templatesData : []);
       setManagedRoles(Array.isArray(rolesData) ? rolesData.map((role) => ({ id: role.id || role._id, name: role.name || role })) : []);
-      const departmentList = usersData
-        .map((user: any) => String(user.department || ''))
-        .filter((dept: string) => dept.trim());
-      setTemplateDepartmentOptions(
-        Array.from(new Set(departmentList)).sort() as string[]
-      );
+      // No template-specific department selection required for default approval chains.
     } catch (err) {
       setError('Unable to load users or account requests.');
     } finally {
@@ -288,7 +282,7 @@ export function Admin() {
     ]);
   };
 
-  const updateTemplateStep = (index: number, key: 'role' | 'department' | 'userId', value: string) => {
+  const updateTemplateStep = (index: number, key: 'role' | 'userId', value: string) => {
     setTemplateApprovalSteps((prev) =>
       prev.map((step, idx) => {
         if (idx !== index) return step;
@@ -710,21 +704,6 @@ export function Admin() {
                             {roleOptions.map((role) => (
                               <SelectItem key={role} value={role}>
                                 {role}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Department</Label>
-                        <Select value={step.department} onValueChange={(value) => updateTemplateStep(index, 'department', value)}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select department" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {templateDepartmentOptions.map((department) => (
-                              <SelectItem key={department} value={department}>
-                                {department}
                               </SelectItem>
                             ))}
                           </SelectContent>

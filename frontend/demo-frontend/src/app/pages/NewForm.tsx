@@ -62,13 +62,15 @@ export function NewForm() {
   const [description, setDescription] = useState('');
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [attachments, setAttachments] = useState<Array<{ id?: string; name: string; size: number; type: string; url?: string }>>([]);
+  const [supportingDocs, setSupportingDocs] = useState<Array<{ id: string; name: string; size: number; type: string; url?: string }>>([]);
+  const [templatePdfFile, setTemplatePdfFile] = useState<File | null>(null);
   const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string; department?: string }>>([]);
   const [approvalRoleOptions, setApprovalRoleOptions] = useState<string[]>([]);
-  const [approvalDepartmentOptions, setApprovalDepartmentOptions] = useState<string[]>([]);
   const [approvalSteps, setApprovalSteps] = useState<Array<{ id?: string; role: string; department: string; userId: string; userName: string }>>([]);
   const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id?: string; role: string; department: string; userId: string; userName: string }>>([]);
   const [formTemplates, setFormTemplates] = useState<Array<any>>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [managedRoleNames, setManagedRoleNames] = useState<string[]>([]);
   const [userLoadError, setUserLoadError] = useState<string | null>(null);
   const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
   const [pdfAnnotations, setPdfAnnotations] = useState<PdfAnnotation[]>([]);
@@ -80,6 +82,11 @@ export function NewForm() {
   const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
   const [isLoadingPdfPreview, setIsLoadingPdfPreview] = useState(false);
   const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
+
+  const normalizeText = (value: string | undefined | null) => {
+    if (!value) return '';
+    return value.trim().toLowerCase().replace(/\s+/g, ' ');
+  };
 
   const isValidUrl = (value: string | undefined | null) => {
     if (!value) return false;
@@ -113,29 +120,24 @@ export function NewForm() {
             role: user.role,
             department: user.department,
           }))
-          .filter((user: { role: string }) => user.role !== 'Student');
+          .filter((user: { role: string }) => normalizeText(user.role) !== 'student');
         
         setAvailableUsers(processedUsers);
 
         // Extract unique roles and departments from available users
-        const uniqueRoles = Array.from(
-          new Set(
-            processedUsers
-              .map((u: any) => u.role)
-              .filter((r: string) => r && r.trim())
-          )
-        ).sort() as string[];
+        const uniqueRoleMap = new Map<string, string>();
+        processedUsers.forEach((user: any) => {
+          const normalized = normalizeText(user.role);
+          if (normalized && !uniqueRoleMap.has(normalized)) {
+            uniqueRoleMap.set(normalized, user.role.trim());
+          }
+        });
 
-        const uniqueDepartments = Array.from(
-          new Set(
-            processedUsers
-              .map((u: any) => u.department)
-              .filter((d: string) => d && d.trim())
-          )
-        ).sort() as string[];
+        const uniqueRoles = Array.from(uniqueRoleMap.values()).sort() as string[];
 
-        setApprovalRoleOptions(uniqueRoles);
-        setApprovalDepartmentOptions(uniqueDepartments);
+        if (managedRoleNames.length === 0) {
+          setApprovalRoleOptions(uniqueRoles);
+        }
         setUserLoadError(null);
       } catch (error: any) {
         console.error('Error loading approvers:', error);
@@ -144,6 +146,32 @@ export function NewForm() {
     };
 
     fetchUsers();
+  }, [API_BASE_URL, managedRoleNames.length]);
+
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/roles`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        });
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const normalizedRoleNames = data
+            .map((role: any) => String(role || '').trim())
+            .filter((role: string) => role.length > 0);
+          setManagedRoleNames(normalizedRoleNames);
+          setApprovalRoleOptions(normalizedRoleNames);
+        }
+      } catch (error) {
+        console.warn('Error loading shared roles:', error);
+      }
+    };
+
+    fetchRoles();
   }, [API_BASE_URL]);
 
   useEffect(() => {
@@ -166,11 +194,30 @@ export function NewForm() {
     fetchTemplates();
   }, [API_BASE_URL]);
 
-  const applySelectedTemplate = (templateId: string) => {
+  const loadTemplatePdfFile = async (template: any) => {
+    if (!template?.pdfUrl) return null;
+
+    try {
+      const response = await fetch(template.pdfUrl);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      const file = new File([blob], `${template.title || 'template'}.pdf`, { type: 'application/pdf' });
+      setTemplatePdfFile(file);
+      setPdfSourceFile(file);
+      return file;
+    } catch (error) {
+      console.warn('Could not load template PDF file', error);
+      return null;
+    }
+  };
+
+  const applySelectedTemplate = async (templateId: string) => {
     setSelectedTemplateId(templateId);
 
     if (!templateId) {
       setAttachments([]);
+      setSupportingDocs([]);
+      setTemplatePdfFile(null);
       setGeneratedPdfUrl('');
       setTemplateApprovalSteps([]);
       setApprovalSteps([]);
@@ -206,8 +253,8 @@ export function NewForm() {
       },
     ]);
     setGeneratedPdfUrl(template.pdfUrl);
-    setPdfSourceFile(null);
     setPdfAnnotations([]);
+    await loadTemplatePdfFile(template);
   };
 
   useEffect(() => {
@@ -279,7 +326,8 @@ export function NewForm() {
   };
 
   const handleSavePdf = async () => {
-    if (!pdfSourceFile) {
+    const sourcePdf = pdfSourceFile || templatePdfFile;
+    if (!sourcePdf) {
       toast.error('Please upload a PDF file first');
       return;
     }
@@ -330,7 +378,7 @@ export function NewForm() {
     try {
       const pdfUrl = await generateFormPdf(
         formIdRef.current,
-        pdfSourceFile,
+        sourcePdf,
         textFields,
         currentUser.signatureURL ?? null,
         null,
@@ -340,9 +388,8 @@ export function NewForm() {
         throw new Error('Received invalid PDF URL from server');
       }
       setGeneratedPdfUrl(pdfUrl);
-      setAttachments((prev) => [
-        ...prev,
-        { name: pdfSourceFile.name, size: pdfSourceFile.size, type: pdfSourceFile.type, url: pdfUrl },
+      setAttachments([
+        { name: sourcePdf.name, size: sourcePdf.size, type: sourcePdf.type, url: pdfUrl },
       ]);
       toast.success('PDF saved successfully');
     } catch (error: any) {
@@ -366,8 +413,10 @@ export function NewForm() {
       setDraftCreated(false);
       setGeneratedPdfUrl('');
       setPdfSourceFile(null);
+      setTemplatePdfFile(null);
       setPdfAnnotations([]);
       setAttachments([]);
+      setSupportingDocs([]);
       setFormType('');
       setTitle('');
       setDescription('');
@@ -379,6 +428,22 @@ export function NewForm() {
       console.error('Delete draft failed:', error);
       toast.error('Unable to delete draft');
     }
+  };
+
+  const handleSupportingDocsUpload = (files: FileList | null) => {
+    if (!files?.length) return;
+    const newFiles = Array.from(files).map((file, index) => ({
+      id: `support-${Date.now()}-${index}`,
+      name: file.name,
+      size: file.size,
+      type: file.type || 'application/octet-stream',
+      url: URL.createObjectURL(file),
+    }));
+    setSupportingDocs((prev) => [...prev, ...newFiles]);
+  };
+
+  const removeSupportingDoc = (id: string) => {
+    setSupportingDocs((prev) => prev.filter((doc) => doc.id !== id));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -399,8 +464,8 @@ export function NewForm() {
       return;
     }
 
-    if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim() || !step.department.trim() || !step.userId)) {
-      toast.error('Please enter a role, department, and select an approver for every approval step');
+if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim() || !step.userId)) {
+      toast.error('Please enter a role and select an approver for every approval step');
       return;
     }
 
@@ -426,11 +491,18 @@ export function NewForm() {
       submittedBy: currentUser.name,
       submittedById: currentUser.id,
       formData,
-      attachments: attachments.map((att, index) => ({
-        ...att,
-        id: `att-${Date.now()}-${index}`,
-        url: att.url ?? '#',
-      })),
+      attachments: [
+        ...attachments.map((att, index) => ({
+          ...att,
+          id: `att-${Date.now()}-${index}`,
+          url: att.url ?? '#',
+        })),
+        ...supportingDocs.map((att, index) => ({
+          ...att,
+          id: `support-${Date.now()}-${index}`,
+          url: att.url ?? '#',
+        })),
+      ],
       approvalSteps: approvalSteps.map((step, index) => ({
         id: `step-${Date.now()}-${index}`,
         ...step,
@@ -458,11 +530,18 @@ export function NewForm() {
             ...step,
             status: 'pending' as const,
           })),
-          attachments: attachments.map((att, index) => ({
-            ...att,
-            id: att.id ?? `att-${Date.now()}-${index}`,
-            url: att.url ?? '#',
-          })),
+          attachments: [
+            ...attachments.map((att, index) => ({
+              ...att,
+              id: att.id ?? `att-${Date.now()}-${index}`,
+              url: att.url ?? '#',
+            })),
+            ...supportingDocs.map((att, index) => ({
+              ...att,
+              id: att.id ?? `support-${Date.now()}-${index}`,
+              url: att.url ?? '#',
+            })),
+          ],
         });
       } else {
         const createdForm = await addForm(baseForm);
@@ -479,51 +558,35 @@ export function NewForm() {
     }
   };
 
-  const normalizeRole = (role: string) => role.trim().toLowerCase();
-  const normalizeDepartment = (department: string) => department.trim().toLowerCase();
+  const normalizeRole = (role: string) => normalizeText(role);
 
-  const findMatchingUserForStep = (role: string, department: string) => {
+  const findMatchingUserForStep = (role: string) => {
     const targetRole = normalizeRole(role);
-    const targetDepartment = normalizeDepartment(department);
 
-    if (!targetRole.trim()) {
+    if (!targetRole) {
       return null;
     }
 
-    const roleMatches = availableUsers.filter((user) => normalizeRole(user.role) === targetRole);
-    if (targetDepartment.trim()) {
-      return roleMatches.find((user) => normalizeDepartment(user.department || '') === targetDepartment) ?? null;
-    }
-    return roleMatches[0] ?? null;
+    return availableUsers.find((user) => normalizeRole(user.role) === targetRole) ?? null;
   };
 
-  const getApproverOptions = (role: string, department: string) => {
-    if (!role.trim()) {
+  const getApproverOptions = (role: string) => {
+    if (!normalizeRole(role)) {
       return [];
     }
 
     const targetRole = normalizeRole(role);
-    const targetDepartment = normalizeDepartment(department);
-    const roleMatches = availableUsers.filter((user) => normalizeRole(user.role) === targetRole);
-
-    if (!targetDepartment.trim()) {
-      return roleMatches;
-    }
-
-    return roleMatches.filter((user) => normalizeDepartment(user.department || '') === targetDepartment);
+    return availableUsers.filter((user) => normalizeRole(user.role) === targetRole);
   };
 
-  const hasExactApproverForStep = (role: string, department: string) => {
-    if (!role.trim() || !department.trim()) return false;
-    return availableUsers.some((user) =>
-      normalizeRole(user.role) === normalizeRole(role) &&
-      normalizeDepartment(user.department || '') === normalizeDepartment(department)
-    );
+  const hasExactApproverForStep = (role: string) => {
+    if (!normalizeRole(role)) return false;
+    return availableUsers.some((user) => normalizeRole(user.role) === normalizeRole(role));
   };
 
   const buildApprovalSteps = (type: FormType) => {
     return approvalChains[type].map((step, index) => {
-      const matchedUser = findMatchingUserForStep(step.role, '');
+      const matchedUser = findMatchingUserForStep(step.role);
       return {
         id: `step-${Date.now()}-${index}`,
         role: step.role,
@@ -535,15 +598,12 @@ export function NewForm() {
   };
 
   const updateApprovalStepRole = (index: number, role: string) => {
-    const currentDepartment = approvalSteps[index]?.department || '';
-    // Clear user selection when role changes, as user must match both role AND department
-    const matchedUser = findMatchingUserForStep(role, currentDepartment);
+    const matchedUser = findMatchingUserForStep(role);
     setApprovalSteps((prev) => prev.map((step, idx) => {
       if (idx !== index) return step;
       return {
         ...step,
         role,
-        // Clear user if no match for new role+department combination
         userId: matchedUser?.id || '',
         userName: matchedUser?.name || '',
       };
@@ -552,19 +612,17 @@ export function NewForm() {
 
   const updateApprovalStepDepartment = (index: number, department: string) => {
     const currentRole = approvalSteps[index]?.role || '';
-    const matchedUser = findMatchingUserForStep(currentRole, department);
+    const matchedUser = findMatchingUserForStep(currentRole);
     setApprovalSteps((prev) => prev.map((step, idx) => {
       if (idx !== index) return step;
       return {
         ...step,
         department,
-        // Clear user if no match for new role+department combination
         userId: matchedUser?.id || '',
         userName: matchedUser?.name || '',
       };
     }));
   };
-
   const handleApproverChange = (index: number, userId: string) => {
     const user = availableUsers.find((item) => item.id === userId);
     if (!user) return;
@@ -624,7 +682,7 @@ export function NewForm() {
       if (step.userId || !step.role.trim()) {
         return step;
       }
-      const matchedUser = findMatchingUserForStep(step.role, step.department);
+      const matchedUser = findMatchingUserForStep(step.role);
       return matchedUser ? {
         ...step,
         userId: matchedUser.id,
@@ -702,6 +760,35 @@ export function NewForm() {
                           </ul>
                         </div>
                       )}
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        {templatePdfFile && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setShowPdfEditor(true)}
+                          >
+                            Edit template copy
+                          </Button>
+                        )}
+                        {templatePdfFile && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              if (generatedPdfUrl) {
+                                previewPdf(generatedPdfUrl);
+                              } else if (templatePdfFile) {
+                                previewPdf(URL.createObjectURL(templatePdfFile));
+                              }
+                            }}
+                            disabled={isLoadingPdfPreview}
+                          >
+                            {isLoadingPdfPreview ? 'Loading preview...' : 'Preview template copy'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -834,34 +921,22 @@ export function NewForm() {
                                 ))}
                               </SelectContent>
                             </Select>
-                            <Select value={step.department} onValueChange={(value) => updateApprovalStepDepartment(index, value)}>
-                              <SelectTrigger className="h-11">
-                                <SelectValue placeholder="Select department" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {approvalDepartmentOptions.map((department) => (
-                                  <SelectItem key={department} value={department}>
-                                    {department}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <div className="text-gray-500 text-xs">Choose a role and department for each approval step.</div>
+                            <div className="text-gray-500 text-xs">Choose a role for each approval step and then select the matching approver.</div>
                           </div>
                           <div className="space-y-2">
                             <Label className="text-sm font-medium">Approver</Label>
                             <Select
                               value={step.userId}
                               onValueChange={(value) => handleApproverChange(index, value)}
-                              disabled={!step.role.trim() || !step.department.trim()}
+                              disabled={!step.role.trim()}
                             >
                               <SelectTrigger className="h-11">
-                                <SelectValue placeholder={step.role.trim() && step.department.trim() ? 'Select approver' : 'Choose role and department first'} />
+                                <SelectValue placeholder={step.role.trim() ? 'Select approver' : 'Choose a role first'} />
                               </SelectTrigger>
                               <SelectContent>
-                                {getApproverOptions(step.role, step.department).map((user) => (
+                                {getApproverOptions(step.role).map((user) => (
                                   <SelectItem key={user.id} value={user.id}>
-                                    {user.name} {user.role ? `(${user.role})` : ''}{user.department ? ` - ${user.department}` : ''}
+                                    {user.name} {user.role ? `(${user.role})` : ''}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -876,9 +951,9 @@ export function NewForm() {
                           >
                             Remove
                           </Button>
-                          {!hasExactApproverForStep(step.role, step.department) && step.role.trim() && step.department.trim() && (
+                          {!hasExactApproverForStep(step.role) && step.role.trim() && (
                             <p className="text-xs text-orange-600 col-span-full">
-                              No matching approver found for "{step.role}" in {step.department}. Please select an available user manually.
+                              No matching approver found for "{step.role}". Please select an available user manually.
                             </p>
                           )}
                         </div>
@@ -888,106 +963,173 @@ export function NewForm() {
                 </div>
               )}
 
-              {!selectedTemplateId && (
-                <>
+              <div className="space-y-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label>Supporting Documents</Label>
+                    <p className="text-sm text-gray-600">Upload extra files such as quotes, guest lists, or permits.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => document.getElementById('supportingDocs')?.click()}
+                  >
+                    Upload Documents
+                  </Button>
+                </div>
+                <input
+                  id="supportingDocs"
+                  type="file"
+                  multiple
+                  onChange={(e) => handleSupportingDocsUpload(e.target.files)}
+                  className="hidden"
+                />
+                {supportingDocs.length > 0 ? (
                   <div className="space-y-2">
-                    <Label htmlFor="sourcePdf">Upload Document</Label>
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                      <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                      <p className="text-sm text-gray-600 mb-2">Upload the PDF you want to send for approval</p>
-                      <Input
-                        id="sourcePdf"
-                        type="file"
-                        accept="application/pdf"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0] ?? null;
-                          if (file && file.type !== 'application/pdf') {
-                            toast.error('Please select a PDF file');
-                            return;
-                          }
-                          setPdfSourceFile(file);
-                        }}
-                        className="hidden"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => document.getElementById('sourcePdf')?.click()}
-                      >
-                        Select PDF
-                      </Button>
-                      {pdfSourceFile && (
-                        <>
-                          <p className="text-xs text-gray-500 mt-2">{pdfSourceFile.name}</p>
+                    {supportingDocs.map((doc) => (
+                      <div key={doc.id} className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                        <div>
+                          <div className="font-medium">{doc.name}</div>
+                          <div className="text-slate-500">{Math.round(doc.size / 1024)} KB</div>
+                        </div>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => removeSupportingDoc(doc.id)}>
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No supporting documents uploaded yet.</p>
+                )}
+              </div>
+
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="sourcePdf">Document</Label>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    {!selectedTemplateId ? (
+                      <>
+                        <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                        <p className="text-sm text-gray-600 mb-2">Upload the PDF you want to send for approval</p>
+                        <Input
+                          id="sourcePdf"
+                          type="file"
+                          accept="application/pdf"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] ?? null;
+                            if (file && file.type !== 'application/pdf') {
+                              toast.error('Please select a PDF file');
+                              return;
+                            }
+                            setPdfSourceFile(file);
+                          }}
+                          className="hidden"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => document.getElementById('sourcePdf')?.click()}
+                        >
+                          Select PDF
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-gray-600 mb-2">Edit this template copy for your request.</p>
+                        <div className="text-left">
+                          <p className="font-medium">{formTemplates.find((template) => template.id === selectedTemplateId)?.title}</p>
+                          <p className="text-xs text-gray-500">{formTemplates.find((template) => template.id === selectedTemplateId)?.type}</p>
+                        </div>
+                        <div className="mt-4 flex flex-wrap justify-center gap-3">
                           <Button
                             type="button"
                             variant="secondary"
                             size="sm"
-                            className="mt-2 border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100"
                             onClick={() => setShowPdfEditor(true)}
                           >
-                            Modify PDF
+                            Edit template copy
                           </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <Dialog open={showPdfEditor} onOpenChange={setShowPdfEditor}>
-                    <DialogContent className="w-full max-w-[90vw] sm:max-w-5xl max-h-[calc(100vh-6rem)] overflow-auto">
-                      <DialogHeader>
-                        <DialogTitle>Modify PDF</DialogTitle>
-                      </DialogHeader>
-                      {approvalSteps.length > 0 && (
-                        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                          <p className="font-medium text-slate-900">Approval chain for this submission</p>
-                          <ul className="mt-2 space-y-2">
-                            {approvalSteps.map((step, index) => (
-                              <li key={index} className="flex flex-col gap-1">
-                                <span className="font-semibold">Step {index + 1}: {step.role || 'Untitled role'}</span>
-                                <span className="text-slate-600">{step.userName ? step.userName : 'No approver selected yet'}</span>
-                              </li>
-                            ))}
-                          </ul>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              if (generatedPdfUrl) {
+                                previewPdf(generatedPdfUrl);
+                              } else if (templatePdfFile) {
+                                previewPdf(URL.createObjectURL(templatePdfFile));
+                              }
+                            }}
+                            disabled={isLoadingPdfPreview}
+                          >
+                            {isLoadingPdfPreview ? 'Loading preview...' : 'Preview template copy'}
+                          </Button>
                         </div>
-                      )}
-                      {pdfSourceFile && (
-                        <PdfEditor
-                          file={pdfSourceFile}
-                          annotations={pdfAnnotations}
-                          onChange={setPdfAnnotations}
-                          onClose={() => setShowPdfEditor(false)}
-                          isSaving={isGeneratingPdf}
-                          currentUserId={currentUser.id}
-                          currentUserSignatureURL={currentUser.signatureURL ?? null}
-                          approvalSteps={approvalSteps}
-                        />
-                      )}
-                    </DialogContent>
-                  </Dialog>
+                      </>
+                    )}
 
-                  {generatedPdfUrl && (
-                    <div className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-4">
-                      <p className="text-sm text-green-900">Generated PDF ready.</p>
-                    </div>
-                  )}
-
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4">
-                    <Button
-                      type="button"
-                      variant="default"
-                      className="mt-4 w-full sm:w-auto px-6"
-                      onClick={handleSavePdf}
-                      disabled={isGeneratingPdf}
-                    >
-                      {isGeneratingPdf ? 'Saving PDF...' : 'Save PDF'}
-                    </Button>
-                    <p className="text-xs text-gray-500 mt-3 sm:mt-0">
-                      Save the edited PDF before submitting your request.
-                    </p>
+                    {((pdfSourceFile && !selectedTemplateId) || (selectedTemplateId && templatePdfFile)) && (
+                      <div className="mt-4 text-sm text-gray-500">
+                        <p>{(selectedTemplateId ? templatePdfFile?.name : pdfSourceFile?.name) || 'Ready to edit'}</p>
+                      </div>
+                    )}
                   </div>
-                </>
-              )}
+                </div>
+
+                <Dialog open={showPdfEditor} onOpenChange={setShowPdfEditor}>
+                  <DialogContent className="w-full max-w-[90vw] sm:max-w-5xl max-h-[calc(100vh-6rem)] overflow-auto">
+                    <DialogHeader>
+                      <DialogTitle>Modify PDF</DialogTitle>
+                    </DialogHeader>
+                    {approvalSteps.length > 0 && (
+                      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                        <p className="font-medium text-slate-900">Approval chain for this submission</p>
+                        <ul className="mt-2 space-y-2">
+                          {approvalSteps.map((step, index) => (
+                            <li key={index} className="flex flex-col gap-1">
+                              <span className="font-semibold">Step {index + 1}: {step.role || 'Untitled role'}</span>
+                              <span className="text-slate-600">{step.userName ? step.userName : 'No approver selected yet'}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {(pdfSourceFile || templatePdfFile) && (
+                      <PdfEditor
+                        file={pdfSourceFile || templatePdfFile!}
+                        annotations={pdfAnnotations}
+                        onChange={setPdfAnnotations}
+                        onClose={() => setShowPdfEditor(false)}
+                        isSaving={isGeneratingPdf}
+                        currentUserId={currentUser.id}
+                        currentUserSignatureURL={currentUser.signatureURL ?? null}
+                        approvalSteps={approvalSteps}
+                      />
+                    )}
+                  </DialogContent>
+                </Dialog>
+
+                {generatedPdfUrl && (
+                  <div className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-4">
+                    <p className="text-sm text-green-900">Generated PDF ready.</p>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4">
+                  <Button
+                    type="button"
+                    variant="default"
+                    className="mt-4 w-full sm:w-auto px-6"
+                    onClick={handleSavePdf}
+                    disabled={isGeneratingPdf}
+                  >
+                    {isGeneratingPdf ? 'Saving PDF...' : 'Save PDF'}
+                  </Button>
+                  <p className="text-xs text-gray-500 mt-3 sm:mt-0">
+                    Save the edited PDF before submitting your request.
+                  </p>
+                </div>
+              </>
             </CardContent>
           </Card>
 

@@ -5,7 +5,7 @@ import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 (pdfjsLib as any).GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
-type AnnotationType = 'text' | 'signature';
+type AnnotationType = 'text' | 'signature' | 'required';
 
 export interface PdfAnnotation {
   id: string;
@@ -156,7 +156,7 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
       widthPct: mode === 'text' ? 0.2 : 0.25,
       heightPct: mode === 'text' ? 0.06 : 0.1,
       ownerId: currentUserId,
-      fontSizePx: mode === 'text' ? 14 : undefined,
+      fontSizePx: mode === 'text' ? 14 : 12,
     };
 
     onChange([...annotations, base]);
@@ -194,6 +194,8 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
   } | null>(null);
 
   const selectedAnnotation = annotations.find((annotation) => annotation.id === selectedId) || null;
+  const isCurrentUserInChain = currentUserId ? approvalSteps.some((step) => step.userId === currentUserId) : false;
+  const canAssignApprover = !isCurrentUserInChain;
 
   const getApproverStepLabel = (step: PdfEditorApprovalStep | undefined) => {
     if (!step) return '';
@@ -505,6 +507,20 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                     </div>
                   )}
 
+                  {selectedId === annotation.id && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeAnnotation(annotation.id);
+                      }}
+                      className="absolute right-1 top-1 z-20 rounded-full bg-white/90 p-1 text-[10px] font-bold text-red-700 shadow-sm hover:bg-red-100"
+                      title="Delete annotation"
+                    >
+                      ×
+                    </button>
+                  )}
+
                   {selectedId === annotation.id && draggable && (
                     <div
                       className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-3 h-3 bg-gray-400 rounded-sm cursor-nw-resize"
@@ -519,59 +535,50 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                       alt="Signature preview"
                       className="h-full w-full object-contain"
                     />
-                    ) : annotation.type === 'text' ? (
-                      <div
-                        contentEditable={draggable}
-                        suppressContentEditableWarning
-                        data-editable-text="true"
-
-                        style={{ 
-                          fontSize: `${annotation.fontSizePx || 14}px` 
-                        }}
-                        onFocus={(e) => { 
-                          const el = e.currentTarget as HTMLElement;
-                          // ensure the editable element is seeded with the current annotation text
-                          // without making the element controlled by React while editing
-                          // (prevents caret/ordering issues)
-                          try {
-                            if (el && el.innerText !== annotation.text) el.innerText = annotation.text || '';
-                          } catch {}
-                          setIsEditingText(true);
-                          setJustFinishedEditing(false);
-                        }}
-                        onInput={(e) => {
-                          const newText = e.currentTarget.innerText;
-
-                          if (newText !== annotation.text) {
-                            updateAnnotation(annotation.id, { text: newText });
-                          }
-                        }}
-                        onBlur={(e) => {
-                          setIsEditingText(false);
-                          setJustFinishedEditing(true);
-                          const newText = e.currentTarget.innerText;
-
-                          if (newText !== annotation.text) {
-                            updateAnnotation(annotation.id, { text: newText });
-                          }
-                        }}
-
-                        onKeyDown={(e) => {
-                          e.stopPropagation(); 
-                          
-                          if (e.key === 'Enter') { 
-                            e.preventDefault(); 
-                            e.currentTarget.blur(); 
-                          }
-                        }}
-
-                        className="w-full h-full outline-none break-words whitespace-pre-wrap"
-                      >
-                        {(selectedId === annotation.id && isEditingText) ? null : annotation.text}
+                  ) : annotation.type === 'text' ? (
+                    <div
+                      contentEditable={draggable}
+                      suppressContentEditableWarning
+                      data-editable-text="true"
+                      style={{ 
+                        fontSize: `${annotation.fontSizePx || 14}px`
+                      }}
+                      onFocus={(e) => {
+                        const el = e.currentTarget as HTMLElement;
+                        try {
+                          if (el && el.innerText !== annotation.text) el.innerText = annotation.text || '';
+                        } catch {}
+                        setIsEditingText(true);
+                        setJustFinishedEditing(false);
+                      }}
+                      onInput={(e) => {
+                        const newText = e.currentTarget.innerText;
+                        if (newText !== annotation.text) {
+                          updateAnnotation(annotation.id, { text: newText });
+                        }
+                      }}
+                      onBlur={(e) => {
+                        setIsEditingText(false);
+                        setJustFinishedEditing(true);
+                        const newText = e.currentTarget.innerText;
+                        if (newText !== annotation.text) {
+                          updateAnnotation(annotation.id, { text: newText });
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="w-full h-full outline-none break-words whitespace-pre-wrap"
+                    >
+                      {(selectedId === annotation.id && isEditingText) ? null : annotation.text}
                     </div>
-                      ) : (
-                        <div className="truncate">{annotation.text || ''}</div>
-                      )}
+                  ) : (
+                    <div className="truncate">{annotation.text || ''}</div>
+                  )}
                   </div>
                 );
               })}
@@ -596,78 +603,79 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
       {selectedAnnotation?.type === 'signature' && (
         <div>
           <div className="space-y-3">
-            {selectedAnnotation?.type === 'signature' ? (
-              <>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Assign approver</label>
-                    <select
-                      className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2"
-                      value={selectedAnnotation.approverStepId ?? ''}
-                      onChange={(e) => updateAnnotationApprover(selectedAnnotation.id, e.target.value)}
-                    >
+            <div className="space-y-3">
+              {canAssignApprover ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Assign approver</label>
+                  <select
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2"
+                    value={selectedAnnotation.approverStepId ?? ''}
+                    onChange={(e) => updateAnnotationApprover(selectedAnnotation.id, e.target.value)}
+                  >
                     <option value="">Unassigned</option>
-
                     {approvalSteps.map((step) => (
                       <option key={step.id} value={step.id}>
                         {getApproverStepLabel(step)}
                       </option>
                     ))}
-                    </select>
-                  </div>
+                  </select>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-600">
+                  Only the requester can assign an approver to this signature placeholder.
+                </p>
+              )}
 
-                  {selectedAnnotation.approverStepId && (
-                    <p className="text-sm text-slate-600">
-                      Assigned approver: <span className="font-medium">{getApproverStepLabel(approvalSteps.find((step) => step.id === selectedAnnotation.approverStepId))}</span>
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  <Button type="button" variant="outline" 
-                    onClick={() => {
-                      updateAnnotation(selectedAnnotation.id, { signatureData: undefined });
-                      setJustFinishedSignature(false);
-                    }}
-                  >
-                    Draw Signature
-                  </Button>
-                  {currentUserSignatureURL ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => updateAnnotation(selectedAnnotation.id, { signatureData: currentUserSignatureURL })}
-                    >
-                      Use Uploaded Signature
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="border rounded-lg overflow-hidden">
-                  <canvas
-                    ref={signatureCanvasRef}
-                    width={320}
-                    height={120}
-                    onPointerDown={startSignatureDrawing}
-                    onPointerMove={drawSignature}
-                    onPointerUp={stopSignatureDrawing}
-                    onPointerLeave={stopSignatureDrawing}
-                    onPointerCancel={stopSignatureDrawing}
-                    className="block w-full bg-white cursor-crosshair"
-                  />
-                </div>
-                <div className="flex gap-2 mt-2">
-                  <Button type="button" variant="outline" onClick={clearSignatureCanvas}>
-                    Clear Signature
-                  </Button>
-                  <Button type="button" onClick={saveSignatureFromCanvas}>
-                    Save Signature
-                  </Button>
-                </div>
-              </>
-            ) : null}
+              {selectedAnnotation.approverStepId && (
+                <p className="text-sm text-slate-600">
+                  Assigned approver: <span className="font-medium">{getApproverStepLabel(approvalSteps.find((step) => step.id === selectedAnnotation.approverStepId))}</span>
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 mb-4">
+              <Button type="button" variant="outline" 
+                onClick={() => {
+                  updateAnnotation(selectedAnnotation.id, { signatureData: undefined });
+                  setJustFinishedSignature(false);
+                }}
+              >
+                Draw Signature
+              </Button>
+              {currentUserSignatureURL ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => updateAnnotation(selectedAnnotation.id, { signatureData: currentUserSignatureURL })}
+                >
+                  Use Uploaded Signature
+                </Button>
+              ) : null}
+            </div>
+            <div className="border rounded-lg overflow-hidden">
+              <canvas
+                ref={signatureCanvasRef}
+                width={320}
+                height={120}
+                onPointerDown={startSignatureDrawing}
+                onPointerMove={drawSignature}
+                onPointerUp={stopSignatureDrawing}
+                onPointerLeave={stopSignatureDrawing}
+                onPointerCancel={stopSignatureDrawing}
+                className="block w-full bg-white cursor-crosshair"
+              />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <Button type="button" variant="outline" onClick={clearSignatureCanvas}>
+                Clear Signature
+              </Button>
+              <Button type="button" onClick={saveSignatureFromCanvas}>
+                Save Signature
+              </Button>
+            </div>
           </div>
         </div>
-
       )}
+
         <div className="flex flex-col gap-2">
           <label className="text-sm font-medium text-gray-700">Actions</label>
             <div className="flex gap-2">

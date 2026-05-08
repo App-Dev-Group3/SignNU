@@ -50,9 +50,6 @@ export function FormDetails() {
     generateAISummary,
   } = useWorkflow();
 
-  if (!currentUser) {
-    return null;
-  }
   const [comments, setComments] = useState('');
   const [isSignatureDialogOpen, setIsSignatureDialogOpen] = useState(false);
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
@@ -69,9 +66,14 @@ export function FormDetails() {
   const [chainSteps, setChainSteps] = useState<any[]>([]);
   const [isSavingChain, setIsSavingChain] = useState(false);
   const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [roleOptions, setRoleOptions] = useState<string[]>([]);
   const [userLoadError, setUserLoadError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+
+  if (!currentUser) {
+    return null;
+  }
 
   const form = getFormById(id || '');
 
@@ -111,7 +113,7 @@ export function FormDetails() {
   );
   const isCurrentSigner = currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
   const canOpenSignatureDialog = canAddSignature || isCurrentSigner;
-  const canEditPending = currentUser.id === form.submittedById && form.status === 'pending';
+  const canEditDraftOrPending = currentUser.id === form.submittedById && (form.status === 'draft' || form.status === 'pending');
   const signatureButtonLabel = isCurrentSigner ? 'Sign & Approve' : 'Add Signature';
   const signatureDialogDescription = isCurrentSigner
     ? 'Sign and approve this document to complete your step.'
@@ -284,6 +286,28 @@ export function FormDetails() {
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
+  const addSupportingDocs = async (files: FileList | null) => {
+    if (!files?.length) return;
+
+    const newAttachments = Array.from(files).map((file) => ({
+      id: `support-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: file.name,
+      size: file.size,
+      type: file.type || 'application/octet-stream',
+      url: URL.createObjectURL(file),
+    }));
+
+    const updatedAttachments = [...form.attachments, ...newAttachments];
+
+    try {
+      await updateForm(form.id, { attachments: updatedAttachments });
+      toast.success('Supporting document added.');
+    } catch (error: any) {
+      console.error('Unable to add supporting docs:', error);
+      toast.error('Failed to add supporting document.');
+    }
+  };
+
   const openChainEditor = () => {
     setChainSteps(form.approvalSteps.map((step) => ({ ...step })));
     setIsChainEditorOpen(true);
@@ -296,13 +320,13 @@ export function FormDetails() {
         Object.entries(buildAuthHeaders()).forEach(([key, value]) => {
           if (value) headers.set(key, value);
         });
-        const res = await fetch(`${API_BASE_URL}/api/users`, {
+        const res = await fetch(`${API_BASE_URL}/api/users/approvers`, {
           credentials: 'include',
           headers,
         });
         if (!res.ok) {
           const text = await res.text();
-          throw new Error(`Unable to load users: ${res.status} ${text}`);
+          throw new Error(`Unable to load approver users: ${res.status} ${text}`);
         }
         const data = await res.json();
         setAvailableUsers(
@@ -320,7 +344,33 @@ export function FormDetails() {
       }
     };
 
+    const loadRoles = async () => {
+      try {
+        const headers = new Headers({ 'Content-Type': 'application/json' });
+        Object.entries(buildAuthHeaders()).forEach(([key, value]) => {
+          if (value) headers.set(key, value);
+        });
+        const res = await fetch(`${API_BASE_URL}/api/users/roles`, {
+          credentials: 'include',
+          headers,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Unable to load roles: ${res.status} ${text}`);
+        }
+        const data = await res.json();
+        const roles = Array.isArray(data)
+          ? data.map((role: any) => String(role || '').trim()).filter((role: string) => role.length > 0)
+          : [];
+        setRoleOptions(roles);
+      } catch (error: any) {
+        console.warn('Unable to load roles:', error);
+        setRoleOptions([]);
+      }
+    };
+
     loadUsers();
+    loadRoles();
   }, [API_BASE_URL]);
 
   const normalizeRole = (role: string) => role.trim().toLowerCase();
@@ -332,7 +382,7 @@ export function FormDetails() {
   };
 
   const hasExactApproverForRole = (role: string) =>
-    availableUsers.some((user) => normalizeRole(user.role) === normalizeRole(role));
+    availableUsers.length > 0 && availableUsers.some((user) => normalizeRole(user.role) === normalizeRole(role));
 
   const findMatchingUserForRole = (role: string) => {
     const target = normalizeRole(role);
@@ -756,11 +806,29 @@ export function FormDetails() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {canEditPending && (
-                  <div className="mb-4 flex justify-end">
-                    <Button variant="secondary" size="sm" onClick={openChainEditor}>
-                      Edit Approval Chain
-                    </Button>
+                {canEditDraftOrPending && (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                      <Button variant="secondary" size="sm" onClick={openChainEditor}>
+                        Edit Approval Chain
+                      </Button>
+                      <div>
+                        <input
+                          id="supportingDocUpload"
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => addSupportingDocs(e.target.files)}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => document.getElementById('supportingDocUpload')?.click()}
+                        >
+                          Add Supporting Docs
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )}
                 {form.attachments.length === 0 ? (
@@ -777,15 +845,26 @@ export function FormDetails() {
                           <div className="flex items-center gap-2">
                             {att.url ? (
                               <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => previewPdfAttachment(att.url)}
-                                  disabled={isLoadingPdf}
-                                >
-                                  {isLoadingPdf ? 'Loading...' : 'View PDF'}
-                                </Button>
-                                {canEditPending && (
+                                {att.type === 'application/pdf' ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => previewPdfAttachment(att.url)}
+                                    disabled={isLoadingPdf}
+                                  >
+                                    {isLoadingPdf ? 'Loading...' : 'View PDF'}
+                                  </Button>
+                                ) : (
+                                  <a
+                                    href={att.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                  >
+                                    Open File
+                                  </a>
+                                )}
+                                {canEditDraftOrPending && att.type === 'application/pdf' && (
                                   <Button
                                     variant="secondary"
                                     size="sm"
@@ -794,7 +873,7 @@ export function FormDetails() {
                                     Edit PDF
                                   </Button>
                                 )}
-                                {canOpenSignatureDialog && (
+                                {canOpenSignatureDialog && att.type === 'application/pdf' && (
                                   <Button
                                     variant="secondary"
                                     size="sm"
@@ -826,7 +905,7 @@ export function FormDetails() {
                 }
               }}
             >
-              <DialogContent className="sm:max-w-4xl max-w-full h-[calc(100vh-5rem)] overflow-auto p-0">
+              <DialogContent className="sm:max-w-6xl max-w-full h-[calc(100vh-5rem)] overflow-auto p-0">
                 <div className="flex h-full flex-col bg-white">
                   <DialogHeader className="px-6 py-4 border-b">
                     <DialogTitle>Preview PDF</DialogTitle>
@@ -859,7 +938,7 @@ export function FormDetails() {
                 setPdfEditorAnnotations([]);
               }
             }}>
-              <DialogContent className="sm:max-w-4xl max-w-full h-[calc(100vh-5rem)] overflow-auto p-0">
+              <DialogContent className="sm:max-w-6xl max-w-full h-[calc(100vh-5rem)] overflow-auto p-0">
                 <div className="flex h-full flex-col bg-white">
                   <DialogHeader className="px-6 py-4 border-b">
                     <DialogTitle>Place your signature</DialogTitle>
@@ -918,12 +997,30 @@ export function FormDetails() {
                           <div className="grid gap-3 sm:grid-cols-3">
                             <div>
                               <Label htmlFor={`chain-role-${index}`}>Role</Label>
-                              <Input
-                                id={`chain-role-${index}`}
-                                value={step.role}
-                                onChange={(e) => updateChainStepRole(index, e.target.value)}
-                                placeholder="Role name (e.g. Department Head)"
-                              />
+                              {roleOptions.length > 0 ? (
+                                <Select
+                                  value={step.role}
+                                  onValueChange={(value) => updateChainStepRole(index, value)}
+                                >
+                                  <SelectTrigger className="h-11">
+                                    <SelectValue placeholder="Select role" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {roleOptions.map((roleName) => (
+                                      <SelectItem key={roleName} value={roleName}>
+                                        {roleName}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Input
+                                  id={`chain-role-${index}`}
+                                  value={step.role}
+                                  onChange={(e) => updateChainStepRole(index, e.target.value)}
+                                  placeholder="Role name (e.g. Department Head)"
+                                />
+                              )}
                             </div>
                             <div>
                               <Label htmlFor={`chain-approver-${index}`}>Approver</Label>

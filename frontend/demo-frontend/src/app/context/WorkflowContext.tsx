@@ -146,7 +146,7 @@ interface WorkflowContextType {
     assignedSignature: string | null,
     annotations?: Array<{
       id: string;
-      type: 'text' | 'signature';
+      type: 'text' | 'signature' | 'required';
       text: string;
       xPct: number;
       yPct: number;
@@ -577,7 +577,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     assignedSignature: string | null,
     annotations?: Array<{
       id: string;
-      type: 'text' | 'signature';
+      type: 'text' | 'signature' | 'required';
       text: string;
       xPct: number;
       yPct: number;
