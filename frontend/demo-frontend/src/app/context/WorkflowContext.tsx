@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 /* ===================== TYPES ===================== */
 
 export type FormType = 'ACP' | 'Meal Request' | 'RI' | 'RFP' | 'Item Request';
-export type FormStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'completed';
+export type FormStatus = 'draft' | 'pending' | 'accepted' | 'rejected' | 'completed';
 
 export type UserRole =
   | 'Requester'
@@ -394,7 +394,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const getFormById = (id: string) => forms.find((f) => f.id === id);
+  const getFormById = (id: string) => {
+    const form = forms.find((f) => f.id === id);
+    if (!form || !currentUser) return form;
+    if (form.status === 'draft' && String(form.submittedById) !== String(currentUser.id)) {
+      return undefined;
+    }
+    return form;
+  };
 
   useEffect(() => {
     const fetchForms = async () => {
@@ -437,7 +444,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       ...form,
       approvalSteps: approvedSteps,
       currentStep: isFinalApproval ? form.currentStep : nextPendingStep,
-      status: isFinalApproval ? 'approved' as const : form.status,
+      status: isFinalApproval ? 'accepted' as const : form.status,
     };
 
     setForms((prev) => prev.map((f) => (f.id === formId ? updatedForm : f)));
@@ -448,7 +455,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     });
 
     if (form.submittedById) {
-      const statusMsg = isFinalApproval ? 'fully approved' : `approved by ${approvedStep.role}`;
+      const statusMsg = isFinalApproval ? 'accepted' : `approved by ${approvedStep.role}`;
       await addNotification(
         formId,
         form.submittedById,

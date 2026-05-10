@@ -68,14 +68,99 @@ export function FormDetails() {
   const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string }>>([]);
   const [roleOptions, setRoleOptions] = useState<string[]>([]);
   const [userLoadError, setUserLoadError] = useState<string | null>(null);
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftDescription, setDraftDescription] = useState('');
+  const [isSavingDetails, setIsSavingDetails] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+
+  const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
+  const AUTH_TOKEN_KEY = 'signnu_auth_token';
+
+  const buildAuthHeaders = (): Record<string, string> => {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  useEffect(() => {
+    if (!currentUser) {
+      setAvailableUsers([]);
+      setRoleOptions([]);
+      setUserLoadError(null);
+      return;
+    }
+
+    const loadUsers = async () => {
+      try {
+        const headers = new Headers({ 'Content-Type': 'application/json' });
+        Object.entries(buildAuthHeaders()).forEach(([key, value]) => {
+          if (value) headers.set(key, value);
+        });
+        const res = await fetch(`${API_BASE_URL}/api/users/approvers`, {
+          credentials: 'include',
+          headers,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Unable to load approver users: ${res.status} ${text}`);
+        }
+        const data = await res.json();
+        setAvailableUsers(
+          data.map((user: any) => ({
+            id: user._id ?? user.id,
+            name: user.username ?? user.name ?? user.email,
+            role: user.role ?? '',
+          }))
+        );
+        setUserLoadError(null);
+      } catch (error: any) {
+        console.warn('Unable to load approver users:', error);
+        setAvailableUsers([]);
+        setUserLoadError(error.message || 'Unable to load approver users');
+      }
+    };
+
+    const loadRoles = async () => {
+      try {
+        const headers = new Headers({ 'Content-Type': 'application/json' });
+        Object.entries(buildAuthHeaders()).forEach(([key, value]) => {
+          if (value) headers.set(key, value);
+        });
+        const res = await fetch(`${API_BASE_URL}/api/users/roles`, {
+          credentials: 'include',
+          headers,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Unable to load roles: ${res.status} ${text}`);
+        }
+        const data = await res.json();
+        const roles = Array.isArray(data)
+          ? data.map((role: any) => String(role || '').trim()).filter((role: string) => role.length > 0)
+          : [];
+        setRoleOptions(roles);
+      } catch (error: any) {
+        console.warn('Unable to load roles:', error);
+        setRoleOptions([]);
+      }
+    };
+
+    loadUsers();
+    loadRoles();
+  }, [API_BASE_URL, currentUser]);
 
   if (!currentUser) {
     return null;
   }
 
   const form = getFormById(id || '');
+
+  useEffect(() => {
+    if (!form) return;
+    setDraftTitle(form.title);
+    setDraftDescription(form.description);
+  }, [form]);
 
   if (!form) {
     return (
@@ -113,12 +198,33 @@ export function FormDetails() {
   );
   const isCurrentSigner = currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
   const canOpenSignatureDialog = canAddSignature || isCurrentSigner;
-  const canEditDraftOrPending = currentUser.id === form.submittedById && (form.status === 'draft' || form.status === 'pending');
+  const canEditDraft = currentUser.id === form.submittedById && form.status === 'draft';
+  const canEditApprovalChain = canEditDraft;
+  const canSubmitDraft = form.status === 'draft' && form.submittedById === currentUser.id;
+  const canDeleteRequest = (form.status === 'draft' || form.status === 'pending') && form.submittedById === currentUser.id;
   const signatureButtonLabel = isCurrentSigner ? 'Sign & Approve' : 'Add Signature';
   const signatureDialogDescription = isCurrentSigner
     ? 'Sign and approve this document to complete your step.'
     : 'Draw your signature in the box below.';
   const completedSignaturesCount = form.approvalSteps.filter((step) => step.status === 'approved').length;
+
+  const handleSaveDetails = async () => {
+    if (!canEditDraft) return;
+    setIsSavingDetails(true);
+    try {
+      await updateForm(form.id, {
+        title: draftTitle,
+        description: draftDescription,
+      });
+      toast.success('Draft details saved successfully');
+      setIsEditingDetails(false);
+    } catch (error: any) {
+      console.error('Saving draft details failed:', error);
+      toast.error(error?.message || 'Unable to save draft details');
+    } finally {
+      setIsSavingDetails(false);
+    }
+  };
 
   const handleApprove = async () => {
     if (currentStep) {
@@ -278,14 +384,6 @@ export function FormDetails() {
     }
   };
 
-  const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
-  const AUTH_TOKEN_KEY = 'signnu_auth_token';
-
-  const buildAuthHeaders = (): Record<string, string> => {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  };
-
   const addSupportingDocs = async (files: FileList | null) => {
     if (!files?.length) return;
 
@@ -312,66 +410,6 @@ export function FormDetails() {
     setChainSteps(form.approvalSteps.map((step) => ({ ...step })));
     setIsChainEditorOpen(true);
   };
-
-  useEffect(() => {
-    const loadUsers = async () => {
-      try {
-        const headers = new Headers({ 'Content-Type': 'application/json' });
-        Object.entries(buildAuthHeaders()).forEach(([key, value]) => {
-          if (value) headers.set(key, value);
-        });
-        const res = await fetch(`${API_BASE_URL}/api/users/approvers`, {
-          credentials: 'include',
-          headers,
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Unable to load approver users: ${res.status} ${text}`);
-        }
-        const data = await res.json();
-        setAvailableUsers(
-          data.map((user: any) => ({
-            id: user._id ?? user.id,
-            name: user.username ?? user.name ?? user.email,
-            role: user.role ?? '',
-          }))
-        );
-        setUserLoadError(null);
-      } catch (error: any) {
-        console.warn('Unable to load approver users:', error);
-        setAvailableUsers([]);
-        setUserLoadError(error.message || 'Unable to load approver users');
-      }
-    };
-
-    const loadRoles = async () => {
-      try {
-        const headers = new Headers({ 'Content-Type': 'application/json' });
-        Object.entries(buildAuthHeaders()).forEach(([key, value]) => {
-          if (value) headers.set(key, value);
-        });
-        const res = await fetch(`${API_BASE_URL}/api/users/roles`, {
-          credentials: 'include',
-          headers,
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Unable to load roles: ${res.status} ${text}`);
-        }
-        const data = await res.json();
-        const roles = Array.isArray(data)
-          ? data.map((role: any) => String(role || '').trim()).filter((role: string) => role.length > 0)
-          : [];
-        setRoleOptions(roles);
-      } catch (error: any) {
-        console.warn('Unable to load roles:', error);
-        setRoleOptions([]);
-      }
-    };
-
-    loadUsers();
-    loadRoles();
-  }, [API_BASE_URL]);
 
   const normalizeRole = (role: string) => role.trim().toLowerCase();
 
@@ -559,7 +597,7 @@ export function FormDetails() {
   };
   */
 
-  const canSendNudge = form.submittedById === currentUser.id || currentUser.role === 'Admin';
+  const canSendNudge = form.status !== 'draft' && (form.submittedById === currentUser.id || currentUser.role === 'Admin');
 
   const handleSendNudge = async () => {
     if (!canSendNudge) {
@@ -568,6 +606,18 @@ export function FormDetails() {
     }
 
     await sendNudge(form.id);
+  };
+
+  const handleSubmitDraft = async () => {
+    if (!canSubmitDraft) return;
+
+    try {
+      await updateForm(form.id, { status: 'pending', currentStep: 0 });
+      toast.success('Draft submitted successfully');
+    } catch (error: any) {
+      console.error('Submit draft failed:', error);
+      toast.error(error?.message || 'Unable to submit draft');
+    }
   };
 
   const handleDeleteRequest = async () => {
@@ -718,12 +768,21 @@ export function FormDetails() {
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-start justify-between mb-4">
-            <div>
+            <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl font-semibold text-gray-900">{form.title}</h1>
+                {isEditingDetails ? (
+                  <input
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-3xl font-semibold text-gray-900 focus:border-blue-500 focus:outline-none"
+                    value={draftTitle}
+                    onChange={(e) => setDraftTitle(e.target.value)}
+                    placeholder="Enter title"
+                  />
+                ) : (
+                  <h1 className="text-3xl font-semibold text-gray-900">{form.title}</h1>
+                )}
                 <Badge
                   variant={
-                    form.status === 'approved'
+                    ['accepted', 'approved'].includes(form.status as string)
                       ? 'default'
                       : form.status === 'rejected'
                       ? 'destructive'
@@ -733,8 +792,40 @@ export function FormDetails() {
                   {form.status}
                 </Badge>
               </div>
-              <p className="text-gray-600">{form.description}</p>
+              {isEditingDetails ? (
+                <Textarea
+                  value={draftDescription}
+                  onChange={(e) => setDraftDescription(e.target.value)}
+                  placeholder="Edit description"
+                  rows={4}
+                  className="w-full"
+                />
+              ) : (
+                <p className="text-gray-600">{form.description}</p>
+              )}
             </div>
+            {form.status === 'draft' && canEditDraft && (
+              <div className="flex flex-col gap-2 ml-4">
+                {isEditingDetails ? (
+                  <>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveDetails}
+                      disabled={isSavingDetails || !draftTitle.trim() || !draftDescription.trim()}
+                    >
+                      {isSavingDetails ? 'Saving...' : 'Save Details'}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setIsEditingDetails(false)}>
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => setIsEditingDetails(true)}>
+                    Edit Details
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Meta Info */}
@@ -806,31 +897,38 @@ export function FormDetails() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {canEditDraftOrPending && (
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div className="space-y-4">
+                  {canEditApprovalChain && (
+                    <div>
                       <Button variant="secondary" size="sm" onClick={openChainEditor}>
                         Edit Approval Chain
                       </Button>
-                      <div>
-                        <input
-                          id="supportingDocUpload"
-                          type="file"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => addSupportingDocs(e.target.files)}
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => document.getElementById('supportingDocUpload')?.click()}
-                        >
-                          Add Supporting Docs
-                        </Button>
-                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                  {form.status === 'draft' && (
+                    <p className="text-sm text-gray-500">
+                      Approval chain will activate after the draft is submitted.
+                    </p>
+                  )}
+                  {canEditDraft && (
+                    <div>
+                      <input
+                        id="supportingDocUpload"
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => addSupportingDocs(e.target.files)}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => document.getElementById('supportingDocUpload')?.click()}
+                      >
+                        Add Supporting Docs
+                      </Button>
+                    </div>
+                  )}
+                </div>
                 {form.attachments.length === 0 ? (
                   <p className="text-sm text-gray-500">No attachments available.</p>
                 ) : (
@@ -864,7 +962,7 @@ export function FormDetails() {
                                     Open File
                                   </a>
                                 )}
-                                {canEditDraftOrPending && att.type === 'application/pdf' && (
+                                {canEditDraft && att.type === 'application/pdf' && (
                                   <Button
                                     variant="secondary"
                                     size="sm"
@@ -1210,25 +1308,39 @@ export function FormDetails() {
                   Generate QR Code
                 </Button>
                 */}
-                {form.status !== 'approved' && canSendNudge && (
-                  <Button onClick={handleSendNudge} variant="outline" size="sm">
-                    <Bell className="w-4 h-4 mr-2" />
-                    Send Nudge
-                  </Button>
-                )}
-                <Button onClick={handleGenerateAISummary} variant="outline" size="sm">
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  Generate AI Summary
-                </Button>
-                <Button onClick={handleDownloadPDF} variant="outline" size="sm">
-                  <Download className="w-4 h-4 mr-2" />
-                  Download PDF
-                </Button>
-                {(form.status === 'draft' || form.status === 'pending') && form.submittedById === currentUser.id && (
-                  <Button onClick={handleDeleteRequest} variant="destructive" size="sm">
-                    <XCircle className="w-4 h-4 mr-2" />
-                    {form.status === 'draft' ? 'Delete Draft' : 'Delete Request'}
-                  </Button>
+                {canSubmitDraft ? (
+                  <>
+                    <Button onClick={handleSubmitDraft} size="sm">
+                      Submit Form
+                    </Button>
+                    <Button onClick={handleDeleteRequest} variant="destructive" size="sm">
+                      <XCircle className="w-4 h-4 mr-2" />
+                      Delete Draft
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    {canSendNudge && (
+                      <Button onClick={handleSendNudge} variant="outline" size="sm">
+                        <Bell className="w-4 h-4 mr-2" />
+                        Send Nudge
+                      </Button>
+                    )}
+                    <Button onClick={handleGenerateAISummary} variant="outline" size="sm">
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Generate AI Summary
+                    </Button>
+                    <Button onClick={handleDownloadPDF} variant="outline" size="sm">
+                      <Download className="w-4 h-4 mr-2" />
+                      Download PDF
+                    </Button>
+                    {form.status === 'pending' && form.submittedById === currentUser.id && (
+                      <Button onClick={handleDeleteRequest} variant="destructive" size="sm">
+                        <XCircle className="w-4 h-4 mr-2" />
+                        Delete Request
+                      </Button>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>

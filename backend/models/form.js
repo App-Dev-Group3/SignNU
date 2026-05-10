@@ -48,7 +48,7 @@ const FormSchema = new Schema({
   submittedBy: { type: String, required: true },
   submittedById: { type: String, required: true },
   submittedAt: { type: String, required: true },
-  status: { type: String, enum: ['draft', 'pending', 'approved', 'rejected', 'completed'], default: 'pending' },
+  status: { type: String, enum: ['draft', 'pending', 'accepted', 'rejected', 'completed'], default: 'pending' },
   formData: { type: Schema.Types.Mixed, default: {} },
   attachments: { type: [AttachmentSchema], default: [] },
   approvalSteps: { type: [ApprovalStepSchema], default: [] },

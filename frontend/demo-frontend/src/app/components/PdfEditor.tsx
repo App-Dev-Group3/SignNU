@@ -592,10 +592,10 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
       <div className="grid gap-3 md:grid-cols-2">
         {selectedAnnotation?.type === 'text' && (
           <div>
-            <label className="block text-sm font-medium text-gray-700">Current Text</label>
+            {/* <label className="block text-sm font-medium text-gray-700">Current Text</label>
             <div className="mt-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
               {selectedAnnotation.text} 
-            </div>
+            </div> */}
             <label className="block text-sm font-medium text-gray-700">Double‑click the floating text box on the PDF to edit</label>
           </div>
       )}
@@ -606,7 +606,7 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
             <div className="space-y-3">
               {canAssignApprover ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Assign approver</label>
+                  {/* <label className="block text-sm font-medium text-gray-700">Assign approver</label>
                   <select
                     className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2"
                     value={selectedAnnotation.approverStepId ?? ''}
@@ -618,7 +618,7 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                         {getApproverStepLabel(step)}
                       </option>
                     ))}
-                  </select>
+                  </select> */}
                 </div>
               ) : (
                 <p className="text-sm text-slate-600">
@@ -676,14 +676,14 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
         </div>
       )}
 
-        <div className="flex flex-col gap-2">
+        {/* <div className="flex flex-col gap-2">
           <label className="text-sm font-medium text-gray-700">Actions</label>
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => removeAnnotation(selectedId!)}>
                 Delete
               </Button>
             </div>
-          </div>
+          </div> */}
         </div>
       )}
 

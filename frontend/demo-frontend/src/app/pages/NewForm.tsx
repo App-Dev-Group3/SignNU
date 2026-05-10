@@ -78,6 +78,7 @@ export function NewForm() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [generatedPdfUrl, setGeneratedPdfUrl] = useState('');
   const [draftCreated, setDraftCreated] = useState(false);
+  const [templateChainApplied, setTemplateChainApplied] = useState(false);
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
   const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
   const [isLoadingPdfPreview, setIsLoadingPdfPreview] = useState(false);
@@ -242,7 +243,8 @@ export function NewForm() {
     setTitle(template.title);
     setDescription(template.description);
     setTemplateApprovalSteps(mappedTemplateSteps);
-    setApprovalSteps(mappedTemplateSteps);
+    setApprovalSteps([]);
+    setTemplateChainApplied(false);
     setAttachments([
       {
         id: `template-${template.id}`,
@@ -276,6 +278,7 @@ export function NewForm() {
     }));
 
     setTemplateApprovalSteps(mappedTemplateSteps);
+    setTemplateChainApplied(false);
   }, [selectedTemplateId, formTemplates]);
 
   useEffect(() => {
@@ -653,6 +656,7 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
       ...step,
       id: `template-step-${Date.now()}-${index}`,
     })));
+    setTemplateChainApplied(true);
     toast.success('Template default approval chain applied');
   };
 
@@ -760,6 +764,18 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
                           </ul>
                         </div>
                       )}
+                      <div className="mt-4 text-sm">
+                        <div className={templateChainApplied ? 'text-slate-700' : 'text-orange-700'}>
+                          {templateChainApplied
+                            ? 'Template approval chain has been applied to this draft.'
+                            : 'Template approval chain is not used yet for this draft.'}
+                        </div>
+                        <div className="mt-1 text-slate-600">
+                          {templatePdfFile && (pdfAnnotations.length > 0 || generatedPdfUrl !== formTemplates.find((template) => template.id === selectedTemplateId)?.pdfUrl)
+                            ? 'Template copy has been edited.'
+                            : 'Template copy has not been edited yet.'}
+                        </div>
+                      </div>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
                         {templatePdfFile && (
                           <Button
@@ -1004,7 +1020,7 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
               </div>
 
               <>
-                <div className="space-y-2">
+                {/* <div className="space-y-2">
                   <Label htmlFor="sourcePdf">Document</Label>
                   <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                     {!selectedTemplateId ? (
@@ -1066,15 +1082,15 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
                           </Button>
                         </div>
                       </>
-                    )}
+                    )} */}
 
-                    {((pdfSourceFile && !selectedTemplateId) || (selectedTemplateId && templatePdfFile)) && (
+                    {/* {((pdfSourceFile && !selectedTemplateId) || (selectedTemplateId && templatePdfFile)) && (
                       <div className="mt-4 text-sm text-gray-500">
                         <p>{(selectedTemplateId ? templatePdfFile?.name : pdfSourceFile?.name) || 'Ready to edit'}</p>
                       </div>
                     )}
                   </div>
-                </div>
+                </div> */}
 
                 <Dialog open={showPdfEditor} onOpenChange={setShowPdfEditor}>
                   <DialogContent className="w-full max-w-[90vw] sm:max-w-5xl max-h-[calc(100vh-6rem)] overflow-auto">

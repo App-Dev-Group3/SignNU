@@ -159,8 +159,16 @@ const uploadPdfToCloudinary = (buffer, formId, originalName) => {
 };
 
 const getAllForms = async (req, res) => {
+  const user = req.user;
   try {
-    const forms = await Form.find({}).sort({ created_at: -1 });
+    const query = {
+      $or: [
+        { status: { $ne: 'draft' } },
+        { submittedById: String(user.id) },
+      ],
+    };
+
+    const forms = await Form.find(query).sort({ created_at: -1 });
     res.status(200).json(forms);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -169,11 +177,17 @@ const getAllForms = async (req, res) => {
 
 const getFormById = async (req, res) => {
   const { id } = req.params;
+  const user = req.user;
   try {
     const form = await Form.findOne({ id });
     if (!form) {
       return res.status(404).json({ error: 'Form not found' });
     }
+
+    if (form.status === 'draft' && String(form.submittedById) !== String(user.id)) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+
     res.status(200).json(form);
   } catch (error) {
     res.status(400).json({ error: 'Invalid ID format' });
@@ -191,11 +205,22 @@ const createForm = async (req, res) => {
 
 const updateForm = async (req, res) => {
   const { id } = req.params;
+  const user = req.user;
   try {
-    const form = await Form.findOneAndUpdate({ id }, { ...req.body }, { new: true, runValidators: true });
-    if (!form) {
+    const existingForm = await Form.findOne({ id });
+    if (!existingForm) {
       return res.status(404).json({ error: 'Form not found' });
     }
+
+    if (
+      existingForm.status === 'draft' &&
+      req.body.status === 'pending' &&
+      String(user.id) !== String(existingForm.submittedById)
+    ) {
+      return res.status(403).json({ error: 'Only the requester can submit this draft.' });
+    }
+
+    const form = await Form.findOneAndUpdate({ id }, { ...req.body }, { new: true, runValidators: true });
     res.status(200).json(form);
   } catch (error) {
     res.status(400).json({ error: error.message });

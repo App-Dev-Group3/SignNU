@@ -21,6 +21,7 @@ export function MySubmissions() {
 
   const getStatusStyles = (status: string) => {
     switch (status) {
+      case 'accepted':
       case 'approved':
         return 'bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/20';
       case 'rejected':
@@ -30,10 +31,13 @@ export function MySubmissions() {
     }
   };
 
+  const isAcceptedStatus = (status: string) => status === 'accepted' || status === 'approved';
+
   const getStatusLabel = (status: string) => {
     switch (status) {
+      case 'accepted':
       case 'approved':
-        return 'Approved';
+        return 'Accepted';
       case 'rejected':
         return 'Rejected';
       default:
@@ -59,7 +63,10 @@ export function MySubmissions() {
     .filter(f => {
       const matchesSearch = f.title.toLowerCase().includes(search.toLowerCase()) ||
                            f.description.toLowerCase().includes(search.toLowerCase());
-      const matchesStatus = statusFilter === 'all' || f.status === statusFilter;
+      const matchesStatus =
+        statusFilter === 'all' ||
+        f.status === statusFilter ||
+        (statusFilter === 'accepted' && isAcceptedStatus(f.status));
       return matchesSearch && matchesStatus;
     });
 
@@ -91,7 +98,7 @@ export function MySubmissions() {
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="draft">Draft</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="accepted">Accepted</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
             </SelectContent>
           </Select>

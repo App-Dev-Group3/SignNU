@@ -30,11 +30,16 @@ export function Dashboard() {
     { title: 'Total Submissions', value: mySubmissions.length, icon: FileText, color: 'text-[#3B82F6]', bg: 'bg-[#3B82F6]/10' },
     { title: 'Pending Requests', value: pendingSubmissions, icon: Clock, color: 'text-[#F59E0B]', bg: 'bg-[#F59E0B]/10' },
     { title: 'Pending Approvals', value: pendingApprovals.length, icon: Bell, color: 'text-[#EAB308]', bg: 'bg-[#EAB308]/10' },
-    { title: 'Approved', value: mySubmissions.filter(f => f.status === 'approved').length, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
+    { title: 'Accepted', value: mySubmissions.filter(f => f.status === 'accepted' || f.status === 'approved').length, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
     { title: 'Rejected', value: mySubmissions.filter(f => f.status === 'rejected').length, icon: AlertCircle, color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10' },
   ];
 
-  const recentForms = [...forms]
+  const visibleForms = forms.filter(form =>
+    form.status !== 'draft' ||
+    form.submittedById === currentUser.id
+  );
+
+  const recentForms = [...visibleForms]
     .filter(form =>
       currentUser.role === 'Admin' ||
       form.submittedById === currentUser.id ||
