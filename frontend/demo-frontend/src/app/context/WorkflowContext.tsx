@@ -70,7 +70,9 @@ export interface CurrentUser {
   id: string;
   name: string;
   role: UserRole;
+  roles?: string[];
   department?: string;
+  organization?: string;
   email?: string;
   signatureURL?: string;
 }
@@ -172,6 +174,7 @@ interface WorkflowContextType {
 
   downloadFormPDF: (formId: string) => void;
   setCurrentUserSignature: (signatureURL: string) => void;
+  setCurrentUser: React.Dispatch<React.SetStateAction<CurrentUser | null>>;
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);
@@ -233,12 +236,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           id: data.user._id ?? data.user.id,
           name: data.user.username ?? data.user.email,
           role: data.user.role,
+          roles: Array.isArray(data.user.roles) && data.user.roles.length > 0 ? data.user.roles : [data.user.role],
           email: data.user.email,
           department: data.user.department,
-          signatureURL: data.user.signatureURL ?? data.user.signatureUrl,
+          organization: data.user.organization,
         });
-
-        setIsAuthenticated(true);
       } catch {
         setCurrentUser(null);
         setIsAuthenticated(false);
@@ -805,6 +807,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     password: string;
     role: string;
     department: string;
+    organization?: string;
   }): Promise<AuthResult> => {
     try {
       const fullName = [data.firstName, data.lastName, data.middleInitial]
@@ -824,6 +827,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           password: data.password,
           role: data.role,
           department: data.department,
+          organization: data.organization,
         }),
       });
 
@@ -918,6 +922,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
         downloadFormPDF,
         setCurrentUserSignature,
+        setCurrentUser,
       }}
     >
       {children}

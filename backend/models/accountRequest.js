@@ -15,6 +15,7 @@ const accountRequestValidationSchema = Joi.object({
   password: Joi.string().min(8).required(),
   role: Joi.string().trim().min(1).required(),
   department: Joi.string().trim().min(1).required(),
+  organization: Joi.string().trim().allow('').optional(),
   status: Joi.string().valid('pending', 'approved', 'rejected').default('pending'),
   reviewNote: Joi.string().trim().allow(''),
 });
@@ -45,6 +46,7 @@ const accountRequestSchema = new Schema({
   password: { type: String, required: true },
   role: { type: String, required: true },
   department: { type: String, required: true },
+  organization: { type: String },
   status: {
     type: String,
     enum: ['pending', 'approved', 'rejected'],

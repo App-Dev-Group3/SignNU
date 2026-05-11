@@ -447,12 +447,14 @@ export function Admin() {
       const email = (request.email || '').toLowerCase();
       const department = (request.department || '').toLowerCase();
       const role = (request.role || '').toLowerCase();
+      const organization = (request.organization || '').toLowerCase();
 
       return (
         name.includes(query) ||
         email.includes(query) ||
         department.includes(query) ||
-        role.includes(query)
+        role.includes(query) ||
+        organization.includes(query)
       );
     });
   }, [accountRequests, pendingSearch]);
@@ -466,12 +468,14 @@ export function Admin() {
       const email = (user.email || '').toLowerCase();
       const department = (user.department || '').toLowerCase();
       const role = (user.role || '').toLowerCase();
+      const organization = (user.organization || '').toLowerCase();
 
       return (
         name.includes(query) ||
         email.includes(query) ||
         department.includes(query) ||
-        role.includes(query)
+        role.includes(query) ||
+        organization.includes(query)
       );
     });
   }, [users, accountSearch]);
@@ -511,7 +515,7 @@ export function Admin() {
                 type="search"
                 value={pendingSearch}
                 onChange={(e) => setPendingSearch(e.target.value)}
-                placeholder="Search pending requests by name, email, department, or role..."
+                placeholder="Search pending requests by name, email, department, organization, or role..."
                 className="w-full rounded-lg border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
               />
             </div>
@@ -527,6 +531,7 @@ export function Admin() {
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Name</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Email</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Department</th>
+                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Organization</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Role</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Actions</th>
                     </tr>
@@ -537,6 +542,7 @@ export function Admin() {
                         <td className="p-3 border-b border-gray-200">{request.username || `${request.firstName} ${request.lastName}`}</td>
                         <td className="p-3 border-b border-gray-200">{request.email}</td>
                         <td className="p-3 border-b border-gray-200">{request.department || '-'}</td>
+                        <td className="p-3 border-b border-gray-200">{request.organization || '-'}</td>
                         <td className="p-3 border-b border-gray-200">{request.role || '-'}</td>
                         <td className="p-3 border-b border-gray-200">
                           <div className="flex flex-wrap gap-2">
@@ -878,7 +884,7 @@ export function Admin() {
                 type="search"
                 value={accountSearch}
                 onChange={(e) => setAccountSearch(e.target.value)}
-                placeholder="Search accounts by name, email, department, or role..."
+                placeholder="Search accounts by name, email, department, organization, or role..."
                 className="w-full rounded-lg border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
               />
             </div>
@@ -893,6 +899,7 @@ export function Admin() {
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Name</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Email</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Department</th>
+                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Organization</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Role</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Status</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Actions</th>
@@ -911,6 +918,9 @@ export function Admin() {
                             className="w-full border rounded-lg px-3 py-2"
                             placeholder="Department"
                           />
+                        </td>
+                        <td className="p-3 border-b border-gray-200">
+                          {user.organization || '-'}
                         </td>
                         <td className="p-3 border-b border-gray-200">
                           <select

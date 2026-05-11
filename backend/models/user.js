@@ -70,6 +70,8 @@ const userSchema = new Schema({
   passwordResetTokenExpires: { type: Date },
 
   role: { type: String, default: 'user' },
+  roles: { type: [String], default: ['user'] },
+  organization: { type: String },
 
   isApproved: {
     type: Boolean,

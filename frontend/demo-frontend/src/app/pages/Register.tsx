@@ -19,10 +19,29 @@ export function Register() {
     confirmPassword: '',
     role: '',
     department: '',
+    organization: '',
+    isCouncilMember: '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const { register } = useWorkflow();
   const navigate = useNavigate();
+
+  const orgRoleOptions: Record<string, string[]> = {
+    SCS: ['Council Advisor','President', 'Special Assistant', 'Administrative Officer','Vice President of Internal Affairs', 'Vice President of External Affairs', 
+      'Vice President for Operations', 'Quality Assurance Director', 'Financial Director', 'Documentation Director','Internal Auditor', 'Treasury and Disbursing Officer', 
+      'Photo Documentation Officer', 'Video Documentation Officer', 'Social Media Director', 'Public Relations Director', 'Community Extension Diretor', 'BSCS Governor', 
+      'BSIT Governor', 'BSIS Governor', 'Liaison Officer', 'Community Needs Officer', 'Program and Activities Director', 'Creative Director', 'Supply and Logistics Director', 
+      'Planning Officer', 'Graphic Designer', 'Creative Officer', 'Video Prod. Officer', 'Executive Secretary', 'Deputy Secretary'
+    ],
+    SABM: ['President', 'Vice President', 'Associate Secretary', 'Associate Treasurer | Sponsorships Head', 'Associate Treasurer | Asset and Logistics Head', 'Associate Auditor',
+      'Associate P.R.O | Graphics and Media', 'Assocciate P.R.O | Documentation', 'Associate P.R.O | Events Coverage', 'Associate P.R.O | Publicity', 'Associate P.R.O | Social Media', 'Associate P.R.O | Creative Content',
+    ],
+
+    SAS: ['President', 'Internal Vice President', 'External Vice President', 'Secretary', 'Treasurer', 'Public Relations Officer', 'Auditor', 'Public Information Officer', 'Communication Representative', 'Documentation Committee', 'Creative Director', 'Creative Director Committee', 'Representative', 'Social Manager'],
+    SEA: ['President', 'Vice President Document and Publications', 'Secretary', 'Vice President of Document and Publications', 'Vice President of Program and Events', 'Vice President of Finance', 'Publications and Documentation Board Member', 'Finance Board Member', 'Program and Events Board Member'],
+    
+    COL: ['President', 'Vice President', 'Director of Leadership', 'Director of Finance', 'Director of Business Affairs', 'Director of Public Relations', 'Executive Secretary', 'Assistant Secretary', 'Growth Head', 'CRSO Chair'],
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +50,18 @@ export function Register() {
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.role || !formData.department) {
       toast.error('Please fill in all required fields');
       return;
+    }
+
+    if (formData.role === 'Student' && !formData.isCouncilMember) {
+      toast.error('Please indicate whether you are part of a council');
+      return;
+    }
+
+    if (formData.role === 'Student' && formData.isCouncilMember === 'yes') {
+      if (!formData.organization) {
+        toast.error('Please select your council organization');
+        return;
+      }
     }
 
     // 2. Strict Name Validation (No numbers allowed)
@@ -66,7 +97,10 @@ export function Register() {
 
     setIsLoading(true);
 
-    const result = await register(formData);
+    const result = await register({
+      ...formData,
+      organization: formData.organization,
+    });
     if (result.success) {
       if (result.pending) {
         toast.success('Account created — pending admin approval');
@@ -86,8 +120,47 @@ export function Register() {
   };
 
   const updateField = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData(prev => {
+      if (field === 'role') {
+        return {
+          ...prev,
+          role: value,
+          isCouncilMember: value === 'Student' ? prev.isCouncilMember : '',
+          organization: value === 'Student' ? prev.organization : '',
+        };
+      }
+
+      if (field === 'isCouncilMember') {
+        return {
+          ...prev,
+          isCouncilMember: value,
+          organization: value === 'yes' ? prev.organization : '',
+        };
+      }
+
+      if (field === 'department') {
+        return {
+          ...prev,
+          department: value,
+          organization: prev.isCouncilMember === 'yes' ? '' : prev.organization,
+        };
+      }
+
+      if (field === 'organization') {
+        return {
+          ...prev,
+          organization: value,
+        };
+      }
+
+      return { ...prev, [field]: value };
+    });
   };
+
+  const organizationOptions =
+    formData.role === 'Student' && formData.isCouncilMember === 'yes'
+      ? (orgRoleOptions[formData.department] || [])
+      : [];
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-white via-slate-50 to-blue-50">
@@ -231,7 +304,6 @@ export function Register() {
                         </Select>
                       </div>
                     </div>
-
                     <div className="space-y-2">
                       <Label>Department *</Label>
                       <div className="relative">
@@ -250,6 +322,48 @@ export function Register() {
                       </div>
                     </div>
                   </div>
+
+                  <div className="space-y-2">
+                    <Label>Organization</Label>
+                    <div className="relative">
+                      <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10 pointer-events-none" />
+                      <Select value={formData.organization} onValueChange={(v) => updateField('organization', v)}>
+                        <SelectTrigger className="pl-12 h-11">
+                          <SelectValue placeholder="Select organization" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {organizationOptions.length > 0 ? (
+                            organizationOptions.map((org) => (
+                              <SelectItem key={org} value={org}>
+                                {org}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <SelectItem value="placeholder" disabled>
+                              Select student council membership first
+                            </SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {formData.role === 'Student' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Part of a council? *</Label>
+                        <Select value={formData.isCouncilMember} onValueChange={(v) => updateField('isCouncilMember', v)}>
+                          <SelectTrigger className="pl-12 h-11">
+                            <SelectValue placeholder="Select yes or no" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="no">No</SelectItem>
+                            <SelectItem value="yes">Yes</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">

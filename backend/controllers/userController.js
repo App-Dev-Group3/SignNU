@@ -79,7 +79,7 @@ const getUserById = async (req, res) => {
 
 // Create a new user
 const createUser = async (req, res) => {
-    const { firstName, middleInitial, mi, lastName, username, email, password, role, department, notifications } = req.body;
+    const { firstName, middleInitial, mi, lastName, username, email, password, role, department, organization, notifications } = req.body;
     try {
         const normalizedEmail = (email || '').toLowerCase().trim();
         if (!normalizedEmail) {
@@ -121,6 +121,7 @@ const createUser = async (req, res) => {
             password,
             role,
             department,
+            organization,
             notifications,
             status: 'pending',
         };
@@ -143,6 +144,7 @@ const createUser = async (req, res) => {
             existingRequest.password = hashedPassword;
             existingRequest.role = value.role;
             existingRequest.department = value.department;
+            existingRequest.organization = value.organization;
             existingRequest.status = 'pending';
             existingRequest.reviewedBy = undefined;
             existingRequest.reviewedAt = undefined;
@@ -169,6 +171,7 @@ const createUser = async (req, res) => {
             password: hashedPassword,
             role: value.role,
             department: value.department,
+            organization: value.organization,
             notifications,
             status: value.status,
         });
@@ -546,6 +549,22 @@ const updateUser = async (req, res) => {
         }
 
         const payload = { ...req.body };
+
+        if (payload.roles) {
+            if (!Array.isArray(payload.roles)) {
+                return res.status(400).json({ error: 'Invalid roles format' });
+            }
+            payload.roles = payload.roles
+                .map((role) => role?.toString?.().trim?.())
+                .filter((role) => typeof role === 'string' && role.length > 0);
+            if (!payload.roles.length) {
+                return res.status(400).json({ error: 'Invalid roles' });
+            }
+            if (!payload.role) {
+                payload.role = payload.roles[0];
+            }
+        }
+
         if (payload.password) {
             const targetUser = await User.findById(id);
             if (!targetUser) {
@@ -591,11 +610,18 @@ const updateUserRole = async (req, res) => {
             return res.status(400).json({ error: 'Invalid role' });
         }
 
-        const user = await User.findByIdAndUpdate(id, { role: role.trim() }, { new: true, runValidators: true }).select('-password');
+        const user = await User.findById(id);
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
-        res.status(200).json(user);
+
+        user.role = role.trim();
+        user.roles = Array.from(new Set([role.trim(), ...(user.roles || [])]));
+        await user.save();
+
+        const safeUser = user.toObject();
+        delete safeUser.password;
+        res.status(200).json(safeUser);
     } catch (error) {
         res.status(400).json({ error: error.message });
     }

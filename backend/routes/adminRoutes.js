@@ -138,7 +138,9 @@ router.put(
                 email: request.email,
                 password: request.password,
                 role: request.role,
+                roles: [request.role],
                 department: request.department,
+                organization: request.organization,
                 isApproved: true,
             });
 
