@@ -115,6 +115,72 @@ const nudgeApprover = async (req, res) => {
   }
 };
 
+const notifyApprover = async (req, res) => {
+  const { id } = req.params;
+  const user = req.user;
+
+  try {
+    const form = await Form.findOne({ id });
+    if (!form) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+
+    const isRequester = String(user.id) === String(form.submittedById);
+    const isAdminUser = user.role === 'Admin';
+    if (!isRequester && !isAdminUser) {
+      return res.status(403).json({ error: 'Only the requester or an admin can notify the approver.' });
+    }
+
+    const pendingSteps = form.approvalSteps.filter((step) => step.status === 'pending');
+    const pendingUserIds = pendingSteps.map((step) => step.userId);
+    const approvers = await User.find({ _id: { $in: pendingUserIds } });
+
+    await Promise.all(
+      approvers.map(async (approver) => {
+        if (!approver.email) return;
+
+        const actorName = user.name || user.username || user.email || 'Someone';
+        const message = `A new request "${form.title}" is waiting for your approval.`;
+
+        if (resendClient) {
+          try {
+            await resendClient.emails.send({
+              from: EMAIL_FROM,
+              to: approver.email,
+              subject: `SignNU: New request ${form.title}`,
+              html: `<p>${message}</p><p><a href="${FRONTEND_URL}/forms/${form.id}">Review the request</a></p>`,
+            });
+          } catch (sendError) {
+            console.warn(`Failed to send notification email to ${approver.email}:`, sendError);
+          }
+        }
+
+        approver.notifications = [
+          {
+            id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            formId: form.id,
+            userId: approver._id.toString(),
+            message,
+            read: false,
+            createdAt: new Date(),
+          },
+          ...(approver.notifications || []),
+        ];
+
+        await approver.save();
+      })
+    );
+
+    return res.status(200).json({
+      message: 'Approver notification email sent successfully.',
+      form,
+    });
+  } catch (error) {
+    console.error('Notify approver failed:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
 const parseDataUrl = (dataUrl) => {
   const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
   if (!match) {
@@ -437,4 +503,5 @@ module.exports = {
   deleteForm,
   generatePdf,
   nudgeApprover,
+  notifyApprover,
 };

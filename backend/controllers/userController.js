@@ -12,6 +12,7 @@ const cloudinary = require('cloudinary').v2;
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const EMAIL_FROM = process.env.EMAIL_FROM || 'no-reply@signnu.work';
+const TEST_EMAIL = process.env.TEST_EMAIL || 'signnu.official@gmail.com';
 
 const canAccessUser = (req, targetId) => req.user.id === targetId || req.user.role === 'Admin';
 
@@ -355,17 +356,24 @@ const requestPasswordReset = async (req, res) => {
         if (user) {
             const token = crypto.randomBytes(32).toString('hex');
             user.passwordResetToken = token;
-            user.passwordResetTokenExpires = Date.now() + 15 * 60 * 1000; // 15 minutes
+            user.passwordResetTokenExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
             await user.save();
 
             const resetUrl = `${FRONTEND_URL}/reset-password?token=${encodeURIComponent(token)}`;
             if (resendClient) {
+                console.log('Sending password reset email', {
+                    from: EMAIL_FROM,
+                    to: normalizedEmail,
+                    subject: 'SignNU Password Reset',
+                    resetUrl,
+                });
                 await resendClient.emails.send({
                     from: EMAIL_FROM,
                     to: normalizedEmail,
                     subject: 'SignNU Password Reset',
                     html: `<p>We received a request to reset your SignNU password.</p><p><a href="${resetUrl}">Reset your password</a></p><p>If you did not request this, please ignore this email.</p>`,
                 });
+                console.log('Password reset email send request completed successfully.');
             } else {
                 console.warn('RESEND_API_KEY is not configured. Skipping password reset email.');
             }
@@ -379,7 +387,9 @@ const requestPasswordReset = async (req, res) => {
 
 const testSendEmail = async (req, res) => {
     const { email, subject, html, text } = req.body;
-    if (!email) {
+    // Use request email if provided, otherwise fall back to TEST_EMAIL
+    const toEmail = (email || TEST_EMAIL || '').toString().trim();
+    if (!toEmail) {
         return res.status(400).json({ error: 'Email is required.' });
     }
 
@@ -388,19 +398,94 @@ const testSendEmail = async (req, res) => {
     }
 
     try {
+        console.log('Sending test email', {
+            from: EMAIL_FROM,
+            to: toEmail,
+            subject: subject || 'SignNU Test Email',
+        });
         const sendResponse = await resendClient.emails.send({
             from: EMAIL_FROM,
-            to: [email],
+            to: [toEmail],
             subject: subject || 'SignNU Test Email',
             html: html || '<strong>This is a SignNU test email.</strong>',
             text: text || 'This is a SignNU test email.',
         });
+        console.log('Test email send request completed successfully:', sendResponse);
 
         return res.status(200).json({ success: true, response: sendResponse });
     } catch (error) {
-        console.error('Test send email failed:', error);
+        console.error('Test send email failed:', {
+            error: error?.message || error,
+            stack: error?.stack,
+            request: {
+                from: EMAIL_FROM,
+                to: toEmail,
+                subject: subject || 'SignNU Test Email',
+            },
+        });
         return res.status(error?.statusCode || 500).json({
             error: error?.message || 'Failed to send test email.',
+            details: error,
+        });
+    }
+};
+
+const testPasswordResetEmail = async (req, res) => {
+    const { email } = req.body;
+    const normalizedEmail = (email || TEST_EMAIL || '').toLowerCase().trim();
+
+    if (!normalizedEmail) {
+        return res.status(400).json({ error: 'Email is required.' });
+    }
+
+    if (!resendClient) {
+        return res.status(500).json({ error: 'Resend API key is not configured.' });
+    }
+
+    try {
+        const user = await User.findOne({ email: normalizedEmail });
+        if (!user) {
+            return res.status(404).json({ error: 'No user found for that email address.' });
+        }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        user.passwordResetToken = token;
+        user.passwordResetTokenExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+        await user.save();
+
+        const resetUrl = `${FRONTEND_URL}/reset-password?token=${encodeURIComponent(token)}`;
+
+        console.log('Sending test password reset email', {
+            from: EMAIL_FROM,
+            to: normalizedEmail,
+            subject: 'SignNU Test Password Reset',
+            resetUrl,
+        });
+
+        const sendResponse = await resendClient.emails.send({
+            from: EMAIL_FROM,
+            to: normalizedEmail,
+            subject: 'SignNU Test Password Reset',
+            html: `<p>This is a test password reset email from SignNU.</p><p><a href="${resetUrl}">Reset your password</a></p>`,
+            text: `Reset your password: ${resetUrl}`,
+        });
+
+        console.log('Test password reset email sent successfully:', sendResponse);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Test password reset email sent.',
+            resetUrl,
+            response: sendResponse,
+        });
+    } catch (error) {
+        console.error('Test password reset email failed:', {
+            error: error?.message || error,
+            stack: error?.stack,
+            email: normalizedEmail,
+        });
+        return res.status(error?.statusCode || 500).json({
+            error: error?.message || 'Failed to send test password reset email.',
             details: error,
         });
     }
@@ -830,6 +915,7 @@ module.exports = {
     changePassword,
     requestPasswordReset,
     testSendEmail,
+    testPasswordResetEmail,
     resetPassword,
     getUserNotifications,
     addUserNotification,

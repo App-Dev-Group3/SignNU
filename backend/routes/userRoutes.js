@@ -16,6 +16,7 @@ const {
     changePassword,
     requestPasswordReset,
     testSendEmail,
+    testPasswordResetEmail,
     resetPassword,
     getUserNotifications,
     addUserNotification,
@@ -63,6 +64,7 @@ router.post('/forgot-password', authLimiter, requestPasswordReset);
 // AUTH / USER SESSION ROUTES
 // ======================
 router.post('/test-email', testSendEmail);
+router.post('/test-reset-password', testPasswordResetEmail);
 router.post('/reset-password', resetPassword);
 router.post('/change-password', authMiddleware, changePassword);
 router.get('/me', authMiddleware, getCurrentUser);

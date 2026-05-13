@@ -10,6 +10,7 @@ export function AccountSettings() {
   const [newPassword, setNewPassword] = useState("");
   const [profileLoading, setProfileLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordResetLoading, setPasswordResetLoading] = useState(false);
 
   const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
   const AUTH_TOKEN_KEY = 'signnu_auth_token';
@@ -136,6 +137,41 @@ export function AccountSettings() {
     }
   };
 
+  const handleSendTestEmail = async () => {
+    if (!currentUser?.email) {
+      toast.error("No email found for current user.");
+      return;
+    }
+
+    setPasswordResetLoading(true);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/users/test-reset-password`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email: currentUser.email }),
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        toast.error(data.error || "Failed to send password reset test email.");
+        return;
+      }
+
+      toast.success("Password reset test email sent to your address.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to send password reset test email.");
+    } finally {
+      setPasswordResetLoading(false);
+    }
+  };
+
   if (!currentUser) {
     return (
       <div style={{ maxWidth: "500px", margin: "40px auto", padding: "20px" }}>
@@ -253,6 +289,28 @@ export function AccountSettings() {
           {passwordLoading ? "Updating..." : "Change Password"}
         </button>
       </form>
+
+      <div style={{ marginTop: "30px" }}>
+        <p style={{ marginBottom: "12px", color: "#555" }}>
+          Test your password reset email delivery by sending a change-password-style message to your account address.
+        </p>
+        <button
+          type="button"
+          onClick={handleSendTestEmail}
+          disabled={passwordResetLoading}
+          style={{
+            width: "100%",
+            padding: "10px",
+            borderRadius: "6px",
+            border: "none",
+            background: passwordResetLoading ? "#999" : "#10b981",
+            color: "white",
+            cursor: "pointer",
+          }}
+        >
+          {passwordResetLoading ? "Sending..." : "Send Test Change Password Email"}
+        </button>
+      </div>
     </div>
   );
 }
