@@ -7,6 +7,25 @@ const approvalRoutes = require('./routes/route');
 const userRoutes = require('./routes/userRoutes');
 const formRoutes = require('./routes/formRoutes');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const ALLOWED_ORIGINS = new Set(
+  [FRONTEND_URL, 'http://localhost:5173', 'https://sign-nu-alpha.vercel.app']
+    .filter(Boolean)
+    .flatMap((origin) => origin.split(',').map((value) => value.trim()))
+);
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true; // allow non-browser requests (curl, same-origin)
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  // Allow any Vercel preview/deploy subdomain (e.g. *.vercel.app)
+  try {
+    const host = new URL(origin).host;
+    if (host.endsWith('.vercel.app')) return true;
+    if (host.includes('www.signnu.work') || host.includes('signnu.work')) return true; // allow www.signnu.com and any subdomain
+  } catch (e) {
+    // ignore parse errors
+  }
+  return false;
+};
 
 const app = express();
 const PORT = process.env.PORT || 4000;
