@@ -5,6 +5,11 @@ const authMiddleware = require('../middleware/authMiddleware.js');
 const adminMiddleware = require('../middleware/adminMiddleware.js');
 const User = require('../models/user.js');
 const AccountRequest = require('../models/accountRequest.js');
+const {
+    getAllPendingRoleRequests,
+    approveRoleRequest,
+    rejectRoleRequest,
+} = require('../controllers/userController.js');
 
 const ensureUniqueUsername = async (baseUsername) => {
     const cleanBase = (baseUsername || 'user').trim();
@@ -139,6 +144,10 @@ router.put(
                 password: request.password,
                 role: request.role,
                 roles: [request.role],
+                userType: request.userType || 'Employee',
+                isCouncilMember: !!request.isCouncilMember,
+                councilRole: request.councilRole,
+                employeeRole: request.employeeRole,
                 department: request.department,
                 organization: request.organization,
                 isApproved: true,
@@ -198,6 +207,27 @@ router.put(
             return res.status(500).json({ error: error.message });
         }
     }
+);
+
+router.get(
+    '/role-requests',
+    authMiddleware,
+    adminMiddleware,
+    getAllPendingRoleRequests
+);
+
+router.put(
+    '/role-requests/:userId/:requestId/approve',
+    authMiddleware,
+    adminMiddleware,
+    approveRoleRequest
+);
+
+router.put(
+    '/role-requests/:userId/:requestId/reject',
+    authMiddleware,
+    adminMiddleware,
+    rejectRoleRequest
 );
 
 module.exports = router;

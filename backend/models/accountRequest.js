@@ -14,6 +14,22 @@ const accountRequestValidationSchema = Joi.object({
   }),
   password: Joi.string().min(8).required(),
   role: Joi.string().trim().min(1).required(),
+  userType: Joi.string().valid('Employee', 'Student').required(),
+  isCouncilMember: Joi.boolean().required(),
+  councilRole: Joi.when('userType', {
+    is: 'Student',
+    then: Joi.when('isCouncilMember', {
+      is: true,
+      then: Joi.string().trim().min(1).required(),
+      otherwise: Joi.string().trim().allow('').optional(),
+    }),
+    otherwise: Joi.string().trim().allow('').optional(),
+  }),
+  employeeRole: Joi.when('userType', {
+    is: 'Employee',
+    then: Joi.string().trim().allow('').optional(),
+    otherwise: Joi.string().trim().allow('').optional(),
+  }),
   department: Joi.string().trim().min(1).required(),
   organization: Joi.string().trim().allow('').optional(),
   status: Joi.string().valid('pending', 'approved', 'rejected').default('pending'),
@@ -45,6 +61,10 @@ const accountRequestSchema = new Schema({
   },
   password: { type: String, required: true },
   role: { type: String, required: true },
+  userType: { type: String, enum: ['Employee', 'Student'], required: true, default: 'Employee' },
+  isCouncilMember: { type: Boolean, default: false },
+  councilRole: { type: String, trim: true },
+  employeeRole: { type: String, trim: true },
   department: { type: String, required: true },
   organization: { type: String },
   status: {

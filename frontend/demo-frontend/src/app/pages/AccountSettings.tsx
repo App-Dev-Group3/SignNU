@@ -5,10 +5,14 @@ import { useWorkflow } from "../context/WorkflowContext";
 export function AccountSettings() {
   const { currentUser, setCurrentUser } = useWorkflow();
   const [organization, setOrganization] = useState("");
-  const [rolesInput, setRolesInput] = useState("");
+  const [rolesDisplay, setRolesDisplay] = useState("");
+  const [requestedRole, setRequestedRole] = useState("");
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  const [pendingRoleRequests, setPendingRoleRequests] = useState<Array<{ requestId: string; role: string; status: string; requestedAt: string }>>([]);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [profileLoading, setProfileLoading] = useState(false);
+  const [requestLoading, setRequestLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordResetLoading, setPasswordResetLoading] = useState(false);
 
@@ -19,9 +23,49 @@ export function AccountSettings() {
     if (!currentUser) return;
 
     setOrganization(currentUser.organization || '');
-    setRolesInput((currentUser.roles && currentUser.roles.length > 0)
+    setRolesDisplay((currentUser.roles && currentUser.roles.length > 0)
       ? currentUser.roles.join(', ')
       : currentUser.role || '');
+
+    const fetchRoleData = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/users/roles`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setAvailableRoles(Array.isArray(data) ? data.filter((role) => typeof role === 'string') : []);
+        }
+      } catch (err) {
+        console.warn('Failed to load available roles', err);
+      }
+    };
+
+    const fetchPendingRequests = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/role-requests`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setPendingRoleRequests(Array.isArray(data)
+            ? data.map((request: any) => ({
+              requestId: request.id || request.requestId || '',
+              role: request.role || '',
+              status: request.status || '',
+              requestedAt: request.requestedAt ? new Date(request.requestedAt).toLocaleString() : '',
+            }))
+            : []);
+        }
+      } catch (err) {
+        console.warn('Failed to load pending role requests', err);
+      }
+    };
+
+    fetchRoleData();
+    fetchPendingRequests();
   }, [currentUser]);
 
   const buildAuthHeaders = (): Record<string, string> => {
@@ -33,16 +77,6 @@ export function AccountSettings() {
     e.preventDefault();
     if (!currentUser) {
       toast.error("Unable to save profile: no user loaded.");
-      return;
-    }
-
-    const roles = rolesInput
-      .split(',')
-      .map((role) => role.trim())
-      .filter((role) => role.length > 0);
-
-    if (!roles.length) {
-      toast.error("Please enter at least one role.");
       return;
     }
 
@@ -60,7 +94,6 @@ export function AccountSettings() {
           },
           body: JSON.stringify({
             organization: organization.trim(),
-            roles,
           }),
         }
       );
@@ -71,20 +104,66 @@ export function AccountSettings() {
         return;
       }
 
-      const updatedUser = {
+      setCurrentUser({
         ...currentUser,
         organization: data.organization ?? organization.trim(),
-        roles,
-        role: data.role ?? roles[0],
-      };
-
-      setCurrentUser(updatedUser);
+      });
       toast.success("Account updated successfully.");
     } catch (error) {
       console.error(error);
       toast.error("Failed to update account settings.");
     } finally {
       setProfileLoading(false);
+    }
+  };
+
+  const handleRequestAdditionalRole = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) {
+      toast.error('Unable to send request: no user loaded.');
+      return;
+    }
+    if (!requestedRole.trim()) {
+      toast.error('Please select a role to request.');
+      return;
+    }
+
+    setRequestLoading(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/users/${currentUser.id}/role-requests`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            ...buildAuthHeaders(),
+          },
+          body: JSON.stringify({ role: requestedRole.trim() }),
+        }
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        toast.error(data.error || 'Failed to submit role request');
+        return;
+      }
+
+      setPendingRoleRequests((prev) => [
+        ...prev,
+        {
+          requestId: data.request?.id || `request-${Date.now()}`,
+          role: data.request?.role || requestedRole.trim(),
+          status: data.request?.status || 'pending',
+          requestedAt: new Date().toLocaleString(),
+        },
+      ]);
+      setRequestedRole('');
+      toast.success('Additional role request submitted');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to submit role request');
+    } finally {
+      setRequestLoading(false);
     }
   };
 
@@ -204,22 +283,22 @@ export function AccountSettings() {
         </div>
 
         <div style={{ marginBottom: "15px" }}>
-          <label>Roles</label>
-          <input
-            type="text"
-            value={rolesInput}
-            onChange={(e) => setRolesInput(e.target.value)}
-            placeholder="Enter roles separated by commas"
+          <label>Current Roles</label>
+          <div
             style={{
               width: "100%",
-              padding: "10px",
+              minHeight: "46px",
               marginTop: "5px",
+              padding: "10px",
               borderRadius: "6px",
               border: "1px solid #ccc",
+              background: "#f9fafb",
             }}
-          />
+          >
+            {rolesDisplay || 'No roles assigned'}
+          </div>
           <p style={{ marginTop: "8px", fontSize: "12px", color: "#555" }}>
-            Use comma-separated values to add extra roles, e.g. "Student, Student Council".
+            Your current account roles are shown above. Additional roles must be requested and approved by an administrator.
           </p>
         </div>
 
@@ -238,6 +317,70 @@ export function AccountSettings() {
         >
           {profileLoading ? "Saving profile..." : "Save Account Info"}
         </button>
+      </form>
+
+      <form onSubmit={handleRequestAdditionalRole} style={{ marginBottom: "30px", marginTop: "30px" }}>
+        <h3 style={{ marginBottom: "12px" }}>Request Additional Role</h3>
+        <div style={{ marginBottom: "15px" }}>
+          <label>Choose a role to request</label>
+          <select
+            value={requestedRole}
+            onChange={(e) => setRequestedRole(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "10px",
+              marginTop: "5px",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+              background: "white",
+            }}
+          >
+            <option value="">Select a role</option>
+            {availableRoles.map((role) => (
+              <option key={role} value={role}>{role}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="submit"
+          disabled={requestLoading}
+          style={{
+            width: "100%",
+            padding: "10px",
+            borderRadius: "6px",
+            border: "none",
+            background: requestLoading ? "#999" : "#2563eb",
+            color: "white",
+            cursor: "pointer",
+          }}
+        >
+          {requestLoading ? "Requesting role..." : "Request Additional Role"}
+        </button>
+
+        {pendingRoleRequests.length > 0 && (
+          <div style={{ marginTop: "20px" }}>
+            <h4 style={{ marginBottom: "10px" }}>Pending Role Requests</h4>
+            <div style={{ display: "grid", gap: "10px" }}>
+              {pendingRoleRequests.map((request) => (
+                <div
+                  key={request.requestId}
+                  style={{
+                    padding: "12px",
+                    borderRadius: "10px",
+                    border: "1px solid #e5e7eb",
+                    background: "#ffffff",
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>{request.role}</div>
+                  <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
+                    Status: {request.status}
+                    {' '}• Requested at: {request.requestedAt}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </form>
 
       <form onSubmit={handleChangePassword}>

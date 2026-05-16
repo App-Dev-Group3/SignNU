@@ -17,10 +17,12 @@ export function Register() {
     email: '',
     password: '',
     confirmPassword: '',
+    userType: '',
     role: '',
     department: '',
-    organization: '',
     isCouncilMember: '',
+    councilRole: '',
+    employeeRole: '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const { register } = useWorkflow();
@@ -47,21 +49,19 @@ export function Register() {
     e.preventDefault();
 
     // 1. Basic Required Fields Check
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.role || !formData.department) {
+    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.role || !formData.department || !formData.userType) {
       toast.error('Please fill in all required fields');
       return;
     }
 
-    if (formData.role === 'Student' && !formData.isCouncilMember) {
-      toast.error('Please indicate whether you are part of a council');
+    if (formData.userType === 'Student' && !formData.isCouncilMember) {
+      toast.error('Please indicate whether you are part of the student council');
       return;
     }
 
-    if (formData.role === 'Student' && formData.isCouncilMember === 'yes') {
-      if (!formData.organization) {
-        toast.error('Please select your council organization');
-        return;
-      }
+    if (formData.userType === 'Student' && formData.isCouncilMember === 'yes' && !formData.councilRole) {
+      toast.error('Please select your student council role');
+      return;
     }
 
     // 2. Strict Name Validation (No numbers allowed)
@@ -99,7 +99,6 @@ export function Register() {
 
     const result = await register({
       ...formData,
-      organization: formData.organization,
     });
     if (result.success) {
       if (result.pending) {
@@ -121,12 +120,22 @@ export function Register() {
 
   const updateField = (field: string, value: string) => {
     setFormData(prev => {
+      if (field === 'userType') {
+        return {
+          ...prev,
+          userType: value,
+          role: value === 'Student' ? 'Student' : prev.role,
+          isCouncilMember: value === 'Student' ? prev.isCouncilMember : '',
+          councilRole: value === 'Student' ? prev.councilRole : '',
+          employeeRole: value === 'Employee' ? prev.employeeRole : '',
+        };
+      }
+
       if (field === 'role') {
         return {
           ...prev,
           role: value,
-          isCouncilMember: value === 'Student' ? prev.isCouncilMember : '',
-          organization: value === 'Student' ? prev.organization : '',
+          employeeRole: prev.userType === 'Employee' ? prev.employeeRole : '',
         };
       }
 
@@ -134,22 +143,7 @@ export function Register() {
         return {
           ...prev,
           isCouncilMember: value,
-          organization: value === 'yes' ? prev.organization : '',
-        };
-      }
-
-      if (field === 'department') {
-        return {
-          ...prev,
-          department: value,
-          organization: prev.isCouncilMember === 'yes' ? '' : prev.organization,
-        };
-      }
-
-      if (field === 'organization') {
-        return {
-          ...prev,
-          organization: value,
+          councilRole: value === 'yes' ? prev.councilRole : '',
         };
       }
 
@@ -157,10 +151,7 @@ export function Register() {
     });
   };
 
-  const organizationOptions =
-    formData.role === 'Student' && formData.isCouncilMember === 'yes'
-      ? (orgRoleOptions[formData.department] || [])
-      : [];
+  const studentCouncilRoles = ['President', 'Vice President', 'Secretary', 'Treasurer'];
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-white via-slate-50 to-blue-50">
@@ -278,7 +269,22 @@ export function Register() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>User Type *</Label>
+                      <div className="relative">
+                        <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10 pointer-events-none" />
+                        <Select value={formData.userType} onValueChange={(v) => updateField('userType', v)}>
+                          <SelectTrigger className="pl-12 h-11">
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Employee">Employee</SelectItem>
+                            <SelectItem value="Student">Student</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
                     <div className="space-y-2">
                       <Label>Role *</Label>
                       <div className="relative">
@@ -323,35 +329,22 @@ export function Register() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>Organization</Label>
-                    <div className="relative">
-                      <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10 pointer-events-none" />
-                      <Select value={formData.organization} onValueChange={(v) => updateField('organization', v)}>
-                        <SelectTrigger className="pl-12 h-11">
-                          <SelectValue placeholder="Select organization" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {organizationOptions.length > 0 ? (
-                            organizationOptions.map((org) => (
-                              <SelectItem key={org} value={org}>
-                                {org}
-                              </SelectItem>
-                            ))
-                          ) : (
-                            <SelectItem value="placeholder" disabled>
-                              Select student council membership first
-                            </SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
+                  {formData.userType === 'Employee' && (
+                    <div className="space-y-2">
+                      <Label>Employee Position</Label>
+                      <Input
+                        value={formData.employeeRole}
+                        onChange={(e) => updateField('employeeRole', e.target.value)}
+                        placeholder="e.g. Advisor, Admin Staff"
+                        className="h-11"
+                      />
                     </div>
-                  </div>
+                  )}
 
-                  {formData.role === 'Student' && (
+                  {formData.userType === 'Student' && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Part of a council? *</Label>
+                        <Label>Part of Student Council? *</Label>
                         <Select value={formData.isCouncilMember} onValueChange={(v) => updateField('isCouncilMember', v)}>
                           <SelectTrigger className="pl-12 h-11">
                             <SelectValue placeholder="Select yes or no" />
@@ -362,6 +355,27 @@ export function Register() {
                           </SelectContent>
                         </Select>
                       </div>
+
+                      {formData.isCouncilMember === 'yes' && (
+                        <div className="space-y-2">
+                          <Label>Student Council Role *</Label>
+                          <div className="relative">
+                            <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10 pointer-events-none" />
+                            <Select value={formData.councilRole} onValueChange={(v) => updateField('councilRole', v)}>
+                              <SelectTrigger className="pl-12 h-11">
+                                <SelectValue placeholder="Select council role" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {studentCouncilRoles.map((councilRole) => (
+                                  <SelectItem key={councilRole} value={councilRole}>
+                                    {councilRole}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

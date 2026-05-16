@@ -72,6 +72,10 @@ export interface CurrentUser {
   name: string;
   role: UserRole;
   roles?: string[];
+  userType?: 'Employee' | 'Student';
+  isCouncilMember?: boolean;
+  councilRole?: string;
+  employeeRole?: string;
   department?: string;
   organization?: string;
   email?: string;
@@ -868,8 +872,12 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     lastName: string;
     email: string;
     password: string;
+    userType: string;
     role: string;
     department: string;
+    isCouncilMember: string;
+    councilRole?: string;
+    employeeRole?: string;
     organization?: string;
   }): Promise<AuthResult> => {
     try {
@@ -888,8 +896,13 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           username: fullName,
           email: data.email.toLowerCase().trim(),
           password: data.password,
+          userType: data.userType,
           role: data.role,
+          roles: [data.role],
           department: data.department,
+          isCouncilMember: data.isCouncilMember,
+          councilRole: data.councilRole,
+          employeeRole: data.employeeRole,
           organization: data.organization,
         }),
       });

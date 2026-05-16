@@ -71,6 +71,26 @@ const userSchema = new Schema({
 
   role: { type: String, default: 'user' },
   roles: { type: [String], default: ['user'] },
+  pendingRoleRequests: [
+    {
+      id: { type: String, default: () => new mongoose.Types.ObjectId().toString() },
+      role: { type: String, required: true, trim: true },
+      status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+      requestedAt: { type: Date, default: Date.now },
+      reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+      reviewedAt: { type: Date },
+      reviewNote: { type: String, trim: true },
+    }
+  ],
+  userType: {
+    type: String,
+    enum: ['Employee', 'Student'],
+    required: true,
+    default: 'Employee',
+  },
+  isCouncilMember: { type: Boolean, default: false },
+  councilRole: { type: String, trim: true },
+  employeeRole: { type: String, trim: true },
   organization: { type: String },
 
   isApproved: {

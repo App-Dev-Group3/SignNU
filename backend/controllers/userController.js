@@ -7,6 +7,7 @@ const User = require('../models/user.js');
 const AccountRequest = require('../models/accountRequest.js');
 const { validateAccountRequest } = require('../models/accountRequest.js');
 const Role = require('../models/role.js');
+const Department = require('../models/department.js');
 const cloudinary = require('cloudinary').v2;
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -92,7 +93,7 @@ const getUserById = async (req, res) => {
 
 // Create a new user
 const createUser = async (req, res) => {
-    const { firstName, middleInitial, mi, lastName, username, email, password, role, department, organization, notifications } = req.body;
+    const { firstName, middleInitial, mi, lastName, username, email, password, role, userType, isCouncilMember, councilRole, employeeRole, department, organization, notifications } = req.body;
     try {
         const normalizedEmail = (email || '').toLowerCase().trim();
         if (!normalizedEmail) {
@@ -125,6 +126,7 @@ const createUser = async (req, res) => {
         const fullName = username || [normalizedFirstName, normalizedLastName, normalizedMi]
           .filter((part) => part && part.toString().trim().length > 0)
           .join(' ');
+        const isCouncilMemberBool = isCouncilMember === true || isCouncilMember === 'yes' || isCouncilMember === 'true';
         const requestPayload = {
             firstName: normalizedFirstName,
             middleInitial: normalizedMi,
@@ -133,6 +135,10 @@ const createUser = async (req, res) => {
             email: normalizedEmail,
             password,
             role,
+            userType,
+            isCouncilMember: isCouncilMemberBool,
+            councilRole: councilRole || '',
+            employeeRole: userType === 'Employee' ? (employeeRole || role || '') : '',
             department,
             organization,
             notifications,
@@ -156,6 +162,10 @@ const createUser = async (req, res) => {
             existingRequest.username = value.username;
             existingRequest.password = hashedPassword;
             existingRequest.role = value.role;
+            existingRequest.userType = value.userType;
+            existingRequest.isCouncilMember = value.isCouncilMember;
+            existingRequest.councilRole = value.councilRole;
+            existingRequest.employeeRole = value.employeeRole;
             existingRequest.department = value.department;
             existingRequest.organization = value.organization;
             existingRequest.status = 'pending';
@@ -184,6 +194,10 @@ const createUser = async (req, res) => {
             email: value.email,
             password: hashedPassword,
             role: value.role,
+            userType: value.userType,
+            isCouncilMember: value.isCouncilMember,
+            councilRole: value.councilRole,
+            employeeRole: value.employeeRole,
             department: value.department,
             organization: value.organization,
             notifications,
@@ -655,14 +669,14 @@ const updateUser = async (req, res) => {
                 return res.status(400).json({ error: 'Invalid roles format' });
             }
             payload.roles = payload.roles
-                .map((role) => role?.toString?.().trim?.())
-                .filter((role) => typeof role === 'string' && role.length > 0);
+                .map((roleItem) => roleItem?.toString?.().trim?.())
+                .filter((roleItem) => typeof roleItem === 'string' && roleItem.length > 0);
             if (!payload.roles.length) {
                 return res.status(400).json({ error: 'Invalid roles' });
             }
-            if (!payload.role) {
-                payload.role = payload.roles[0];
-            }
+            payload.role = payload.roles[0];
+        } else if (payload.role) {
+            payload.roles = [payload.role.toString().trim()];
         }
 
         if (payload.password) {
@@ -693,6 +707,171 @@ const updateUser = async (req, res) => {
         res.status(200).json(user);
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+};
+
+const createRoleRequest = async (req, res) => {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!role || !role.toString().trim()) {
+        return res.status(400).json({ error: 'Invalid role request' });
+    }
+
+    if (req.user.id !== id && req.user.role !== 'Admin') {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    try {
+        const targetUser = await User.findById(id);
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const normalizedRole = role.toString().trim();
+        if (Array.isArray(targetUser.roles) && targetUser.roles.some((existingRole) => existingRole.toLowerCase() === normalizedRole.toLowerCase())) {
+            return res.status(400).json({ error: 'User already has this role' });
+        }
+
+        const requestId = crypto.randomUUID();
+        const newRequest = {
+            id: requestId,
+            role: normalizedRole,
+            status: 'pending',
+            requestedAt: new Date(),
+        };
+
+        targetUser.pendingRoleRequests = Array.isArray(targetUser.pendingRoleRequests)
+            ? [...targetUser.pendingRoleRequests, newRequest]
+            : [newRequest];
+
+        await targetUser.save();
+
+        res.status(201).json({ request: newRequest });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+const getUserRoleRequests = async (req, res) => {
+    const { id } = req.params;
+    if (!canAccessUser(req, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    try {
+        const user = await User.findById(id).select('pendingRoleRequests');
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.status(200).json(user.pendingRoleRequests || []);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+const getAllPendingRoleRequests = async (_req, res) => {
+    try {
+        const users = await User.find({ 'pendingRoleRequests.status': 'pending' })
+            .select('username email department roles pendingRoleRequests');
+
+        const requests = [];
+        users.forEach((user) => {
+            (user.pendingRoleRequests || []).forEach((request) => {
+                if (request.status === 'pending') {
+                    requests.push({
+                        userId: user._id,
+                        username: user.username,
+                        email: user.email,
+                        department: user.department,
+                        roles: user.roles || [],
+                        requestId: request.id,
+                        role: request.role,
+                        status: request.status,
+                        requestedAt: request.requestedAt,
+                    });
+                }
+            });
+        });
+
+        res.status(200).json(requests);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const approveRoleRequest = async (req, res) => {
+    const { userId, requestId } = req.params;
+    const { note } = req.body;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const requestItem = Array.isArray(user.pendingRoleRequests)
+            ? user.pendingRoleRequests.find((item) => item.id === requestId)
+            : null;
+        if (!requestItem) {
+            return res.status(404).json({ error: 'Role request not found' });
+        }
+        if (requestItem.status !== 'pending') {
+            return res.status(400).json({ error: 'Only pending requests can be approved' });
+        }
+
+        const requestedRole = requestItem.role.trim();
+        user.roles = Array.from(new Set([requestedRole, ...(user.roles || [])]));
+        if (!user.role || user.role.trim().length === 0) {
+            user.role = requestedRole;
+        }
+
+        requestItem.status = 'approved';
+        requestItem.reviewedBy = req.user.id;
+        requestItem.reviewedAt = new Date();
+        requestItem.reviewNote = (note || '').toString().trim();
+
+        await user.save();
+
+        const safeUser = user.toObject();
+        delete safeUser.password;
+        res.status(200).json({ request: requestItem, user: safeUser });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const rejectRoleRequest = async (req, res) => {
+    const { userId, requestId } = req.params;
+    const { note } = req.body;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const requestItem = Array.isArray(user.pendingRoleRequests)
+            ? user.pendingRoleRequests.find((item) => item.id === requestId)
+            : null;
+        if (!requestItem) {
+            return res.status(404).json({ error: 'Role request not found' });
+        }
+        if (requestItem.status !== 'pending') {
+            return res.status(400).json({ error: 'Only pending requests can be rejected' });
+        }
+
+        requestItem.status = 'rejected';
+        requestItem.reviewedBy = req.user.id;
+        requestItem.reviewedAt = new Date();
+        requestItem.reviewNote = (note || '').toString().trim();
+
+        await user.save();
+
+        res.status(200).json({ request: requestItem });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 };
 
@@ -910,6 +1089,11 @@ const getAvailableRoles = async (_req, res) => {
 
 const getAvailableDepartments = async (_req, res) => {
     try {
+        const managedDepartments = await Department.find({}).sort({ name: 1 });
+        if (managedDepartments.length > 0) {
+            return res.status(200).json(managedDepartments.map((dept) => dept.name));
+        }
+
         const departments = await User.distinct('department', { isApproved: true });
         const filteredDepartments = departments
             .filter(dept => dept && dept.trim())
@@ -938,6 +1122,11 @@ module.exports = {
     deleteUserNotification,
     updateUser,
     updateUserRole,
+    createRoleRequest,
+    getUserRoleRequests,
+    getAllPendingRoleRequests,
+    approveRoleRequest,
+    rejectRoleRequest,
     updateSignature,
     updatePdf,
     deleteUser,

@@ -24,6 +24,8 @@ const {
     deleteUserNotification,
     updateUser,
     updateUserRole,
+    createRoleRequest,
+    getUserRoleRequests,
     updateSignature,
     updatePdf,
     deleteUser,
@@ -116,6 +118,9 @@ router.get('/:id/notifications', authMiddleware, getUserNotifications);
 router.post('/:id/notifications', authMiddleware, addUserNotification);
 router.patch('/:id/notifications/:notificationId', authMiddleware, updateUserNotification);
 router.delete('/:id/notifications/:notificationId', authMiddleware, deleteUserNotification);
+
+router.post('/:id/role-requests', authMiddleware, createRoleRequest);
+router.get('/:id/role-requests', authMiddleware, getUserRoleRequests);
 
 // ======================
 // USER MANAGEMENT
