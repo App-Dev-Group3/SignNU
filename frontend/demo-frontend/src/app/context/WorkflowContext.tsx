@@ -269,6 +269,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           department: data.user.department,
           organization: data.user.organization,
         });
+        setIsAuthenticated(true);
       } catch {
         setCurrentUser(null);
         setIsAuthenticated(false);
