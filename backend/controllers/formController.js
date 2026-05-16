@@ -5,6 +5,33 @@ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const { Resend } = require('resend');
 const fetch = globalThis.fetch || ((...args) => require('node-fetch')(...args));
 
+const emitToUser = (req, userId, event, payload) => {
+  try {
+    const io = req.app?.get('io');
+    if (!io || !userId) return;
+    io.to(`user:${String(userId)}`).emit(event, payload);
+  } catch (error) {
+    console.warn(`Socket emit failed for ${event} to user:${userId}`, error?.message || error);
+  }
+};
+
+const emitFormToUsers = (req, form, event = 'form:updated') => {
+  try {
+    const io = req.app?.get('io');
+    if (!io || !form) return;
+    const userIds = new Set();
+    if (form.submittedById) userIds.add(String(form.submittedById));
+    if (Array.isArray(form.approvalSteps)) {
+      form.approvalSteps.forEach((step) => {
+        if (step?.userId) userIds.add(String(step.userId));
+      });
+    }
+    userIds.forEach((userId) => io.to(`user:${userId}`).emit(event, form));
+  } catch (error) {
+    console.warn(`Socket emit failed for form event ${event}`, error?.message || error);
+  }
+};
+
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const EMAIL_FROM = process.env.EMAIL_FROM || 'SignNU <no-reply@signnu.work>';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -87,19 +114,18 @@ const nudgeApprover = async (req, res) => {
           }
         }
 
-        approver.notifications = [
-          {
-            id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-            formId: form.id,
-            userId: approver._id.toString(),
-            message,
-            read: false,
-            createdAt: new Date(),
-          },
-          ...(approver.notifications || []),
-        ];
+        const notification = {
+          id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          formId: form.id,
+          userId: approver._id.toString(),
+          message,
+          read: false,
+          createdAt: new Date(),
+        };
 
+        approver.notifications = [notification, ...(approver.notifications || [])];
         await approver.save();
+        emitToUser(req, approver._id, 'notification:new', notification);
       })
     );
 
@@ -155,19 +181,18 @@ const notifyApprover = async (req, res) => {
           }
         }
 
-        approver.notifications = [
-          {
-            id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-            formId: form.id,
-            userId: approver._id.toString(),
-            message,
-            read: false,
-            createdAt: new Date(),
-          },
-          ...(approver.notifications || []),
-        ];
+        const notification = {
+          id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          formId: form.id,
+          userId: approver._id.toString(),
+          message,
+          read: false,
+          createdAt: new Date(),
+        };
 
+        approver.notifications = [notification, ...(approver.notifications || [])];
         await approver.save();
+        emitToUser(req, approver._id, 'notification:new', notification);
       })
     );
 
@@ -263,6 +288,7 @@ const getFormById = async (req, res) => {
 const createForm = async (req, res) => {
   try {
     const form = await Form.create(req.body);
+    emitFormToUsers(req, form, 'form:updated');
     res.status(201).json(form);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -287,6 +313,7 @@ const updateForm = async (req, res) => {
     }
 
     const form = await Form.findOneAndUpdate({ id }, { ...req.body }, { new: true, runValidators: true });
+    emitFormToUsers(req, form, 'form:updated');
     res.status(200).json(form);
   } catch (error) {
     res.status(400).json({ error: error.message });

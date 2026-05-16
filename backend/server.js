@@ -29,6 +29,7 @@ const isOriginAllowed = (origin) => {
   try {
     const host = new URL(origin).host;
     if (host.endsWith('.vercel.app')) return true;
+    if (host.includes('www.signnu.work') || host === 'signnu.work') return true; // allow any subdomain of www.signnu.works
   } catch (e) {
     // ignore parse errors
   }

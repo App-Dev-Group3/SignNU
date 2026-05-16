@@ -1,4 +1,5 @@
 ﻿import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { io, Socket } from 'socket.io-client';
 import { toast } from 'sonner';
 
 /* ===================== TYPES ===================== */
@@ -221,6 +222,33 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [forms, setForms] = useState<FormSubmission[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [qrSessions, setQrSessions] = useState<QRSession[]>([]);
+  const [socket, setSocket] = useState<Socket | null>(null);
+
+  const updateOrAddForm = (incomingForm: any) => {
+    if (!incomingForm?.id) return;
+    setForms((prev) => {
+      const exists = prev.some((form) => form.id === incomingForm.id);
+      if (exists) {
+        return prev.map((form) => (form.id === incomingForm.id ? incomingForm : form));
+      }
+      return [incomingForm, ...prev];
+    });
+  };
+
+  const handleNotificationEvent = (notification: any) => {
+    if (!currentUser || String(notification.userId) !== String(currentUser.id)) return;
+    setNotifications((prev) => [notification, ...prev]);
+  };
+
+  const handleFormEvent = (form: any) => {
+    if (!currentUser) return;
+    const isRequester = String(form.submittedById) === String(currentUser.id);
+    const isApprover = Array.isArray(form.approvalSteps)
+      ? form.approvalSteps.some((step) => String(step.userId) === String(currentUser.id))
+      : false;
+    if (!isRequester && !isApprover) return;
+    updateOrAddForm(form);
+  };
 
   /* ===================== SESSION CHECK ===================== */
 
@@ -241,6 +269,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           department: data.user.department,
           organization: data.user.organization,
         });
+        setIsAuthenticated(true);
       } catch {
         setCurrentUser(null);
         setIsAuthenticated(false);
@@ -272,6 +301,34 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
     loadNotifications();
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    const socketConnection = io(API_BASE_URL, {
+      transports: ['websocket', 'polling'],
+      withCredentials: true,
+    });
+
+    socketConnection.on('connect', () => {
+      console.debug('Workflow socket connected');
+    });
+
+    socketConnection.on('notification:new', handleNotificationEvent);
+    socketConnection.on('form:updated', handleFormEvent);
+    socketConnection.on('connect_error', (err) => {
+      console.warn('Workflow socket connect error:', err);
+    });
+
+    setSocket(socketConnection);
+
+    return () => {
+      socketConnection.disconnect();
+      setSocket(null);
+    };
+  }, [API_BASE_URL, currentUser]);
 
   /* ===================== LOGIN ===================== */
 

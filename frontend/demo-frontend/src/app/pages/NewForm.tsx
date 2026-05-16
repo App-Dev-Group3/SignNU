@@ -79,6 +79,7 @@ export function NewForm() {
   const [generatedPdfUrl, setGeneratedPdfUrl] = useState('');
   const [draftCreated, setDraftCreated] = useState(false);
   const [templateChainApplied, setTemplateChainApplied] = useState(false);
+  const [isCustomApprovalChain, setIsCustomApprovalChain] = useState(false);
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
   const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
   const [isLoadingPdfPreview, setIsLoadingPdfPreview] = useState(false);
@@ -212,6 +213,40 @@ export function NewForm() {
     }
   };
 
+  const resetToDefaultChain = (type?: FormType, templateId?: string) => {
+    const selectedFormType = type || formType;
+
+    if (templateId || selectedTemplateId) {
+      const template = formTemplates.find((item) => item.id === (templateId || selectedTemplateId));
+      if (template) {
+        const mappedTemplateSteps = (template.approvalSteps || []).map((step: any, index: number) => ({
+          id: step.id || `template-step-${Date.now()}-${index}`,
+          role: step.role || '',
+          department: step.department || '',
+          userId: step.userId || '',
+          userName: step.userName || '',
+        }));
+        setApprovalSteps(mappedTemplateSteps);
+        setTemplateChainApplied(true);
+        return;
+      }
+    }
+
+    if (selectedFormType) {
+      setApprovalSteps(buildApprovalSteps(selectedFormType));
+      setTemplateChainApplied(false);
+    }
+  };
+
+  const enableCustomApprovalChain = () => {
+    setIsCustomApprovalChain(true);
+  };
+
+  const disableCustomApprovalChain = () => {
+    setIsCustomApprovalChain(false);
+    resetToDefaultChain();
+  };
+
   const applySelectedTemplate = async (templateId: string) => {
     setSelectedTemplateId(templateId);
 
@@ -223,6 +258,7 @@ export function NewForm() {
       setTemplateApprovalSteps([]);
       setApprovalSteps([]);
       setFormType('');
+      setTemplateChainApplied(false);
       return;
     }
 
@@ -243,8 +279,10 @@ export function NewForm() {
     setTitle(template.title);
     setDescription(template.description);
     setTemplateApprovalSteps(mappedTemplateSteps);
-    setApprovalSteps([]);
-    setTemplateChainApplied(false);
+    setTemplateChainApplied(!isCustomApprovalChain);
+    if (!isCustomApprovalChain) {
+      setApprovalSteps(mappedTemplateSteps);
+    }
     setAttachments([
       {
         id: `template-${template.id}`,
@@ -278,8 +316,11 @@ export function NewForm() {
     }));
 
     setTemplateApprovalSteps(mappedTemplateSteps);
-    setTemplateChainApplied(false);
-  }, [selectedTemplateId, formTemplates]);
+    if (!isCustomApprovalChain) {
+      setApprovalSteps(mappedTemplateSteps);
+      setTemplateChainApplied(true);
+    }
+  }, [selectedTemplateId, formTemplates, isCustomApprovalChain]);
 
   useEffect(() => {
     return () => {
@@ -467,7 +508,12 @@ export function NewForm() {
       return;
     }
 
-if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim() || !step.userId)) {
+    if (!draftCreated) {
+      toast.error('Please save the PDF draft before submitting your request');
+      return;
+    }
+
+    if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim() || !step.userId)) {
       toast.error('Please enter a role and select an approver for every approval step');
       return;
     }
@@ -670,12 +716,13 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
       return;
     }
 
-    if (selectedTemplateId) {
+    if (selectedTemplateId || isCustomApprovalChain) {
       return;
     }
 
     setApprovalSteps(buildApprovalSteps(formType));
-  }, [formType, selectedTemplateId]);
+    setTemplateChainApplied(false);
+  }, [formType, selectedTemplateId, isCustomApprovalChain]);
 
   useEffect(() => {
     if (!formType || approvalSteps.length === 0) {
@@ -898,15 +945,28 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                       <Label>Approval Chain</Label>
-                      <p className="text-sm text-gray-600">Pick the default chain or adjust it by adding/removing approval roles.</p>
+                      <p className="text-sm text-gray-600">
+                        {isCustomApprovalChain
+                          ? 'You are editing a custom approval chain. Add or change steps as needed.'
+                          : 'Using the default approval chain. Press Customize to change the approval sequence.'}
+                      </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {selectedTemplateId && templateApprovalSteps.length > 0 && (
-                        <Button type="button" variant="outline" size="sm" onClick={applyTemplateApprovalChain}>
-                          Use template default chain
-                        </Button>
-                      )}
-                      <Button type="button" variant="secondary" size="sm" onClick={addApprovalStep}>
+                      <Button
+                        type="button"
+                        variant={isCustomApprovalChain ? 'outline' : 'secondary'}
+                        size="sm"
+                        onClick={isCustomApprovalChain ? disableCustomApprovalChain : enableCustomApprovalChain}
+                      >
+                        {isCustomApprovalChain ? 'Use default chain' : 'Customize chain'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={addApprovalStep}
+                        disabled={!isCustomApprovalChain}
+                      >
                         Add approval role
                       </Button>
                     </div>
@@ -925,7 +985,7 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
                               </div>
                               <div className="font-medium">Approval step</div>
                             </div>
-                            <Select value={step.role} onValueChange={(value) => updateApprovalStepRole(index, value)}>
+                            <Select value={step.role} onValueChange={(value) => updateApprovalStepRole(index, value)} disabled={!isCustomApprovalChain}>
                               <SelectTrigger className="h-11">
                                 <SelectValue placeholder="Select role" />
                               </SelectTrigger>
@@ -944,7 +1004,7 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
                             <Select
                               value={step.userId}
                               onValueChange={(value) => handleApproverChange(index, value)}
-                              disabled={!step.role.trim()}
+                              disabled={!step.role.trim() || !isCustomApprovalChain}
                             >
                               <SelectTrigger className="h-11">
                                 <SelectValue placeholder={step.role.trim() ? 'Select approver' : 'Choose a role first'} />
@@ -964,6 +1024,7 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
                             size="sm"
                             className="text-red-600 hover:bg-red-50"
                             onClick={() => removeApprovalStep(index)}
+                            disabled={!isCustomApprovalChain}
                           >
                             Remove
                           </Button>
@@ -1186,6 +1247,7 @@ if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim()
                 size="lg"
                 className="w-full sm:w-auto"
                 disabled={
+                  !draftCreated ||
                   (!pdfSourceFile && attachments.length === 0) ||
                   approvalSteps.length === 0 ||
                   approvalSteps.some((step) => !step.role.trim() || !step.userId)

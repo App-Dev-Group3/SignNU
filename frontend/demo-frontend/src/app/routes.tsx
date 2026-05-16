@@ -9,6 +9,8 @@ import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { Admin } from "./pages/Admin";
 import { AdminDashboard } from "./pages/AdminDashboard";
+import { AdminPendingAccounts } from "./pages/AdminPendingAccounts";
+import { AdminTemplates } from "./pages/AdminTemplates";
 import { Root } from "./pages/Root";
 
 // ✅ NEW PAGE IMPORT
@@ -40,6 +42,8 @@ export const router = createBrowserRouter([
       // ✅ NEW ROUTE ADDED HERE
       { path: "account-settings", Component: AccountSettings },
       { path: "admin", Component: Admin },
+      { path: "admin/pending-accounts", Component: AdminPendingAccounts },
+      { path: "admin/templates", Component: AdminTemplates },
       { path: "admin/dashboard", Component: AdminDashboard },
     ],
   },
