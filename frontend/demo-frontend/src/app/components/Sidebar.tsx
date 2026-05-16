@@ -8,6 +8,7 @@ import {
   LogOut,
   Settings,
   MessageSquare,
+  Users,
   X,
 } from 'lucide-react';
 import { useWorkflow } from '../context/WorkflowContext';
@@ -41,7 +42,9 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     { path: '/account-settings', icon: Settings, label: 'Account Settings' },
     ...(currentUser.role === 'Admin'
       ? [
+          { path: '/admin/templates', icon: FileText, label: 'Templates' },
           { path: '/admin', icon: Pencil, label: 'Accounts' },
+          { path: '/admin/pending-accounts', icon: Users, label: 'Pending Accounts' },
           { path: '/admin/dashboard', icon: CheckSquare, label: 'Admin Requests' },
         ]
       : []),

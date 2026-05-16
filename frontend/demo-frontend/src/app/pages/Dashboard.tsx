@@ -25,13 +25,15 @@ export function Dashboard() {
   );
 
   const pendingSubmissions = mySubmissions.filter(f => f.status === 'pending').length;
+  const approvedByMe = forms.filter(f => f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'approved')).length;
+  const rejectedByMe = forms.filter(f => f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'rejected')).length;
 
   const stats = [
     { title: 'Total Submissions', value: mySubmissions.length, icon: FileText, color: 'text-[#3B82F6]', bg: 'bg-[#3B82F6]/10' },
     { title: 'Pending Requests', value: pendingSubmissions, icon: Clock, color: 'text-[#F59E0B]', bg: 'bg-[#F59E0B]/10' },
     { title: 'Pending Approvals', value: pendingApprovals.length, icon: Bell, color: 'text-[#EAB308]', bg: 'bg-[#EAB308]/10' },
-    { title: 'Accepted', value: mySubmissions.filter(f => f.status === 'accepted' || f.status === 'approved').length, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
-    { title: 'Rejected', value: mySubmissions.filter(f => f.status === 'rejected').length, icon: AlertCircle, color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10' },
+    { title: currentUser.role === 'Requester' ? 'Accepted' : 'Approved', value: currentUser.role === 'Requester' ? mySubmissions.filter(f => f.status === 'accepted').length : approvedByMe, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
+    { title: currentUser.role === 'Requester' ? 'Rejected' : 'Rejected', value: currentUser.role === 'Requester' ? mySubmissions.filter(f => f.status === 'rejected').length : rejectedByMe, icon: AlertCircle, color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10' },
   ];
 
   const visibleForms = forms.filter(form =>

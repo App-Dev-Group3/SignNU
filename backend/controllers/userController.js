@@ -16,6 +16,18 @@ const TEST_EMAIL = process.env.TEST_EMAIL || 'signnu.official@gmail.com';
 
 const canAccessUser = (req, targetId) => req.user.id === targetId || req.user.role === 'Admin';
 
+const emitAccountRequestEvent = (req, request) => {
+    try {
+        const io = req.app?.get('io');
+        if (!io) return;
+        const payload = request.toObject ? request.toObject() : { ...request };
+        if (payload.password) delete payload.password;
+        io.emit('account-request:new', payload);
+    } catch (error) {
+        console.warn('Failed to emit account-request:new', error?.message || error);
+    }
+};
+
 const generateToken = (user) => {
     return jwt.sign(
         {
@@ -151,6 +163,7 @@ const createUser = async (req, res) => {
             existingRequest.reviewedAt = undefined;
             existingRequest.reviewNote = undefined;
             await existingRequest.save();
+            emitAccountRequestEvent(req, existingRequest);
 
             return res.status(201).json({
                 message: 'Account request submitted and pending admin approval',
@@ -176,6 +189,7 @@ const createUser = async (req, res) => {
             notifications,
             status: value.status,
         });
+        emitAccountRequestEvent(req, request);
 
         return res.status(201).json({
             message: 'Account request submitted and pending admin approval',
@@ -568,6 +582,7 @@ const addUserNotification = async (req, res) => {
         };
         user.notifications = [notification, ...(user.notifications || [])];
         await user.save();
+        emitNotificationToUser(req, id, notification);
         res.status(201).json(notification);
     } catch (error) {
         res.status(400).json({ error: error.message });
