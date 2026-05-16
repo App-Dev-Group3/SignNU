@@ -20,7 +20,8 @@ export type UserRole =
   | 'Finance Officer'
   | 'Procurement Officer'
   | 'VP for Academics'
-  | 'VP for Finance';
+  | 'VP for Finance'
+  | 'user';
 
 export interface Attachment {
   id: string;
@@ -260,11 +261,16 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
         const data = await res.json();
 
+        const userRole = (data.user.role || (Array.isArray(data.user.roles) ? data.user.roles[0] : undefined) || 'Requester') as UserRole;
         setCurrentUser({
           id: data.user._id ?? data.user.id,
-          name: data.user.username ?? data.user.email,
-          role: data.user.role,
-          roles: Array.isArray(data.user.roles) && data.user.roles.length > 0 ? data.user.roles : [data.user.role],
+          name:
+            data.user.username ||
+            data.user.name ||
+            [data.user.firstName, data.user.lastName].filter(Boolean).join(' ') ||
+            data.user.email,
+          role: userRole,
+          roles: Array.isArray(data.user.roles) && data.user.roles.length > 0 ? data.user.roles : [userRole],
           email: data.user.email,
           department: data.user.department,
           organization: data.user.organization,
@@ -348,11 +354,19 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         };
       }
 
+      const userRole = (data.user.role || (Array.isArray(data.user.roles) ? data.user.roles[0] : undefined) || 'Requester') as UserRole;
       setCurrentUser({
-        id: data.user._id,
-        name: data.user.username,
-        role: data.user.role,
+        id: data.user._id ?? data.user.id,
+        name:
+          data.user.username ||
+          data.user.name ||
+          [data.user.firstName, data.user.lastName].filter(Boolean).join(' ') ||
+          data.user.email,
+        role: userRole,
+        roles: Array.isArray(data.user.roles) && data.user.roles.length > 0 ? data.user.roles : [userRole],
         email: data.user.email,
+        department: data.user.department,
+        organization: data.user.organization,
         signatureURL: data.user.signatureURL ?? data.user.signatureUrl,
       });
 

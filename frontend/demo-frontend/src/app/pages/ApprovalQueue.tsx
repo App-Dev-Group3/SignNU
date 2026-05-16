@@ -12,17 +12,25 @@ export function ApprovalQueue() {
     return null;
   }
 
-  const pendingApprovals = forms.filter(f => 
-    f.status === 'pending' && 
-    f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
-  );
+  const currentUserId = String(currentUser.id);
+  const currentUserRole = currentUser.role?.toLowerCase() || '';
+  const canApprove = currentUserRole !== 'student';
 
-  const approvedByMe = forms.filter(f =>
-    f.approvalSteps.some(step => 
-      step.userId === currentUser.id && 
-      (step.status === 'approved' || step.status === 'rejected')
-    )
-  );
+  const pendingApprovals = canApprove
+    ? forms.filter(f => 
+        f.status === 'pending' && 
+        f.approvalSteps.some(step => String(step.userId) === currentUserId && step.status === 'pending')
+      )
+    : [];
+
+  const approvedByMe = canApprove
+    ? forms.filter(f =>
+        f.approvalSteps.some(step => 
+          String(step.userId) === currentUserId && 
+          (step.status === 'approved' || step.status === 'rejected')
+        )
+      )
+    : [];
 
   return (
     <div className="p-8">

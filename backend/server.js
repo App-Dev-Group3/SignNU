@@ -14,6 +14,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const formRoutes = require('./routes/formRoutes');
 const templateRoutes = require('./routes/templateRoutes');
 const roleRoutes = require('./routes/roleRoutes');
+const officeRoutes = require('./routes/officeRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const ALLOWED_ORIGINS = new Set(
@@ -238,6 +239,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/forms', formRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api/roles', roleRoutes);
+app.use('/api/offices', officeRoutes);
 app.use('/api/messages', messageRoutes);
 
 // =====================

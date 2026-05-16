@@ -15,25 +15,39 @@ export function Dashboard() {
 
   if (!currentUser) return null;
 
-  const mySubmissions = forms.filter(f => f.submittedById === currentUser.id);
-  const myNotifications = notifications.filter(n => n.userId === currentUser.id);
+  const currentUserId = String(currentUser.id);
+  const mySubmissions = forms.filter(f => String(f.submittedById) === currentUserId);
+  const myNotifications = notifications.filter(n => String(n.userId) === currentUserId);
   const unreadCount = myNotifications.filter(n => !n.read).length;
 
-  const pendingApprovals = forms.filter(f =>
-    f.status === 'pending' &&
-    f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
-  );
+  const currentUserRole = currentUser.role?.toLowerCase() || '';
+  const canApprove = currentUserRole !== 'student';
 
-  const pendingSubmissions = mySubmissions.filter(f => f.status === 'pending').length;
-  const approvedByMe = forms.filter(f => f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'approved')).length;
-  const rejectedByMe = forms.filter(f => f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'rejected')).length;
+  const pendingApprovals = canApprove
+    ? forms.filter(f =>
+        f.status === 'pending' &&
+        f.approvalSteps.some(step => String(step.userId) === currentUserId && step.status === 'pending')
+      )
+    : [];
+
+  const isAcceptedStatus = (status: string) => status === 'accepted' || status === 'approved';
+  const pendingSubmissions = mySubmissions.filter(f => String(f.status) === 'pending').length;
+  const acceptedSubmissions = mySubmissions.filter(f => isAcceptedStatus(f.status)).length;
+  const rejectedSubmissions = mySubmissions.filter(f => f.status === 'rejected').length;
+  const approvedByMe = canApprove
+    ? forms.filter(f => f.approvalSteps.some(step => String(step.userId) === currentUserId && step.status === 'approved')).length
+    : 0;
+  const rejectedByMe = canApprove
+    ? forms.filter(f => f.approvalSteps.some(step => String(step.userId) === currentUserId && step.status === 'rejected')).length
+    : 0;
+  const isRequester = currentUserRole === 'student' || mySubmissions.length > 0;
 
   const stats = [
     { title: 'Total Submissions', value: mySubmissions.length, icon: FileText, color: 'text-[#3B82F6]', bg: 'bg-[#3B82F6]/10' },
     { title: 'Pending Requests', value: pendingSubmissions, icon: Clock, color: 'text-[#F59E0B]', bg: 'bg-[#F59E0B]/10' },
-    { title: 'Pending Approvals', value: pendingApprovals.length, icon: Bell, color: 'text-[#EAB308]', bg: 'bg-[#EAB308]/10' },
-    { title: currentUser.role === 'Requester' ? 'Accepted' : 'Approved', value: currentUser.role === 'Requester' ? mySubmissions.filter(f => f.status === 'accepted').length : approvedByMe, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
-    { title: currentUser.role === 'Requester' ? 'Rejected' : 'Rejected', value: currentUser.role === 'Requester' ? mySubmissions.filter(f => f.status === 'rejected').length : rejectedByMe, icon: AlertCircle, color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10' },
+    ...(canApprove ? [{ title: 'Pending Approvals', value: pendingApprovals.length, icon: Bell, color: 'text-[#EAB308]', bg: 'bg-[#EAB308]/10' }] : []),
+    { title: isRequester ? 'Accepted' : 'Approved', value: isRequester ? acceptedSubmissions : approvedByMe, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
+    { title: 'Rejected', value: isRequester ? rejectedSubmissions : rejectedByMe, icon: AlertCircle, color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10' },
   ];
 
   const visibleForms = forms.filter(form =>
@@ -270,30 +284,32 @@ export function Dashboard() {
           </Card>
 
           {/* APPROVALS */}
-          <Card className="bg-white/80 backdrop-blur-xl border border-[#35408e]/10 shadow-xl rounded-xl">
-            <CardHeader>
-              <CardTitle className="text-[#35408e]">Pending Approval</CardTitle>
-              <CardDescription>Needs your action</CardDescription>
-            </CardHeader>
+          {canApprove && (
+            <Card className="bg-white/80 backdrop-blur-xl border border-[#35408e]/10 shadow-xl rounded-xl">
+              <CardHeader>
+                <CardTitle className="text-[#35408e]">Pending Approval</CardTitle>
+                <CardDescription>Needs your action</CardDescription>
+              </CardHeader>
 
-            <CardContent>
-              {pendingApprovals.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <CheckCircle className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                  No pending approvals
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pendingApprovals.map(form => (
-                    <Link key={form.id} to={`/form/${form.id}`} className="block p-4 rounded-lg border border-[#35408e]/10 hover:bg-[#35408e]/5 transition">
-                      <p className="font-medium text-[#35408e]">{form.title}</p>
-                      <p className="text-sm text-gray-600">{form.submittedBy}</p>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              <CardContent>
+                {pendingApprovals.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <CheckCircle className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                    No pending approvals
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {pendingApprovals.map(form => (
+                      <Link key={form.id} to={`/form/${form.id}`} className="block p-4 rounded-lg border border-[#35408e]/10 hover:bg-[#35408e]/5 transition">
+                        <p className="font-medium text-[#35408e]">{form.title}</p>
+                        <p className="text-sm text-gray-600">{form.submittedBy}</p>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
         </div>
 
