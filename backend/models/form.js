@@ -48,7 +48,7 @@ const FormSchema = new Schema({
   submittedBy: { type: String, required: true },
   submittedById: { type: String, required: true },
   submittedAt: { type: String, required: true },
-  status: { type: String, enum: ['draft', 'pending', 'approved', 'rejected', 'completed'], default: 'pending' },
+  status: { type: String, enum: ['draft', 'pending', 'accepted', 'rejected', 'completed'], default: 'pending' },
   formData: { type: Schema.Types.Mixed, default: {} },
   attachments: { type: [AttachmentSchema], default: [] },
   approvalSteps: { type: [ApprovalStepSchema], default: [] },
@@ -57,6 +57,8 @@ const FormSchema = new Schema({
   generatedPdfURL: { type: String },
   currentStep: { type: Number, default: 0 },
   lastNudgedAt: { type: String },
+  lastRequesterNudgedAt: { type: String },
+  lastAdminNudgedAt: { type: String },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 module.exports = mongoose.model('Form', FormSchema);

@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const authMiddleware = require('../middleware/authMiddleware.js');
 const router = express.Router();
 
 const storage = multer.memoryStorage();
@@ -12,14 +13,18 @@ const {
   updateForm,
   deleteForm,
   generatePdf,
+  nudgeApprover,
+  notifyApprover,
 } = require('../controllers/formController.js');
 
-router.get('/', getAllForms);
-router.get('/:id', getFormById);
-router.post('/', createForm);
-router.patch('/:id', updateForm);
-router.post('/:id/pdf', upload.single('pdfFile'), generatePdf);
-router.all('/:id/pdf', upload.single('pdfFile'), generatePdf);
-router.delete('/:id', deleteForm);
+router.get('/', authMiddleware, getAllForms);
+router.get('/:id', authMiddleware, getFormById);
+router.post('/', authMiddleware, createForm);
+router.patch('/:id', authMiddleware, updateForm);
+router.post('/:id/nudge', authMiddleware, nudgeApprover);
+router.post('/:id/notify-approver', authMiddleware, notifyApprover);
+router.post('/:id/pdf', authMiddleware, upload.single('pdfFile'), generatePdf);
+router.all('/:id/pdf', authMiddleware, upload.single('pdfFile'), generatePdf);
+router.delete('/:id', authMiddleware, deleteForm);
 
 module.exports = router;

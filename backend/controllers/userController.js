@@ -4,11 +4,15 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const { Resend } = require('resend');
 const User = require('../models/user.js');
+const AccountRequest = require('../models/accountRequest.js');
+const { validateAccountRequest } = require('../models/accountRequest.js');
+const Role = require('../models/role.js');
 const cloudinary = require('cloudinary').v2;
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const EMAIL_FROM = process.env.EMAIL_FROM || 'no-reply@signnu.work';
+const TEST_EMAIL = process.env.TEST_EMAIL || 'signnu.official@gmail.com';
 
 const canAccessUser = (req, targetId) => req.user.id === targetId || req.user.role === 'Admin';
 
@@ -18,6 +22,8 @@ const generateToken = (user) => {
             id: user._id,
             email: user.email,
             role: user.role,
+            username: user.username,
+            name: user.username,
         },
         process.env.JWT_SECRET || 'secret123',
         { expiresIn: '1h' }
@@ -30,12 +36,24 @@ cloudinary.config({
 });
 
 // Log the configuration
-console.log(cloudinary.config());
+// console.log(cloudinary.config());
 
 // Get all users
 const getAllUsers = async (req, res) => {
     try {
         const users = await User.find({}).sort({ created_at: -1 }).select('-password');
+        res.status(200).json(users);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const getApproverUsers = async (_req, res) => {
+    try {
+        const users = await User.find({ isApproved: true })
+            .sort({ username: 1 })
+            .select('_id username email role department isApproved');
+
         res.status(200).json(users);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -62,41 +80,112 @@ const getUserById = async (req, res) => {
 
 // Create a new user
 const createUser = async (req, res) => {
-    const { username, email, password, role, department, notifications } = req.body;
+    const { firstName, middleInitial, mi, lastName, username, email, password, role, department, organization, notifications } = req.body;
     try {
-        const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
+        const normalizedEmail = (email || '').toLowerCase().trim();
+        if (!normalizedEmail) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
+        const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) {
             return res.status(400).json({ error: 'Email already exists' });
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const user = await User.create({
-            username,
-            email: email.toLowerCase().trim(),
-            password: hashedPassword,
+        const existingRequest = await AccountRequest.findOne({ email: normalizedEmail });
+        if (existingRequest && existingRequest.status === 'pending') {
+            return res.status(409).json({
+                error: 'Email is pending admin approval',
+                pending: true,
+            });
+        }
+        if (existingRequest && existingRequest.status === 'approved') {
+            return res.status(400).json({ error: 'Email already exists' });
+        }
+
+        const normalizedFirstName = (firstName || '').trim();
+        const normalizedLastName = (lastName || '').trim();
+        const normalizedMi = (middleInitial ?? mi ?? '').toString().trim();
+
+        if (!normalizedFirstName || !normalizedLastName) {
+            return res.status(400).json({ error: 'First name and last name are required' });
+        }
+
+        const fullName = username || [normalizedFirstName, normalizedLastName, normalizedMi]
+          .filter((part) => part && part.toString().trim().length > 0)
+          .join(' ');
+        const requestPayload = {
+            firstName: normalizedFirstName,
+            middleInitial: normalizedMi,
+            lastName: normalizedLastName,
+            username: fullName,
+            email: normalizedEmail,
+            password,
             role,
             department,
+            organization,
             notifications,
-        });
-
-        const safeUser = user.toObject();
-        delete safeUser.password;
-
-        const token = generateToken(user);
-        req.session.user = {
-            id: user._id.toString(),
-            email: user.email,
-            role: user.role,
+            status: 'pending',
         };
 
-        res.cookie('auth_token', token, {
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === 'production',
-            maxAge: 60 * 60 * 1000, // 1 hour
+        const { error, value } = validateAccountRequest(requestPayload);
+        if (error) {
+            return res.status(400).json({
+                error: 'Invalid account request data',
+                details: error.details.map((detail) => detail.message),
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(value.password, 10);
+
+        if (existingRequest && existingRequest.status === 'rejected') {
+            existingRequest.firstName = value.firstName;
+            existingRequest.middleInitial = value.middleInitial;
+            existingRequest.lastName = value.lastName;
+            existingRequest.username = value.username;
+            existingRequest.password = hashedPassword;
+            existingRequest.role = value.role;
+            existingRequest.department = value.department;
+            existingRequest.organization = value.organization;
+            existingRequest.status = 'pending';
+            existingRequest.reviewedBy = undefined;
+            existingRequest.reviewedAt = undefined;
+            existingRequest.reviewNote = undefined;
+            await existingRequest.save();
+
+            return res.status(201).json({
+                message: 'Account request submitted and pending admin approval',
+                pending: true,
+                request: {
+                    id: existingRequest._id,
+                    email: existingRequest.email,
+                    status: existingRequest.status,
+                },
+            });
+        }
+
+        const request = await AccountRequest.create({
+            firstName: value.firstName,
+            middleInitial: value.middleInitial,
+            lastName: value.lastName,
+            username: value.username,
+            email: value.email,
+            password: hashedPassword,
+            role: value.role,
+            department: value.department,
+            organization: value.organization,
+            notifications,
+            status: value.status,
         });
 
-        res.status(201).json({ message: 'User created', token, user: safeUser });
+        return res.status(201).json({
+            message: 'Account request submitted and pending admin approval',
+            pending: true,
+            request: {
+                id: request._id,
+                email: request.email,
+                status: request.status,
+            },
+        });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -107,33 +196,64 @@ const loginUser = async (req, res) => {
     const { email, password } = req.body;
     try {
         const user = await User.findOne({ email: email.toLowerCase().trim() });
+
         if (!user) {
+            const pendingRequest = await AccountRequest.findOne({
+                email: email.toLowerCase().trim(),
+                status: 'pending',
+            });
+
+            if (pendingRequest) {
+                return res.status(403).json({
+                    error: 'Email is pending admin approval',
+                    pending: true,
+                });
+            }
+
             return res.status(401).json({ error: 'Invalid email or password' });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
+
         if (!isMatch) {
             return res.status(401).json({ error: 'Invalid email or password' });
+        }
+
+        // 🔒 NEW: APPROVAL CHECK (ADD THIS)
+        if (!user.isApproved) {
+            return res.status(403).json({
+                error: 'Email is pending admin approval',
+                pending: true,
+            });
         }
 
         const safeUser = user.toObject();
         delete safeUser.password;
 
         const token = generateToken(user);
+
         req.session.user = {
             id: user._id.toString(),
             email: user.email,
             role: user.role,
+            username: user.username,
+            name: user.username,
         };
 
         res.cookie('auth_token', token, {
             httpOnly: true,
-            sameSite: 'lax',
+            // Allow cross-site cookie in production (frontend on a different domain)
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
             secure: process.env.NODE_ENV === 'production',
             maxAge: 60 * 60 * 1000, // 1 hour
         });
 
-        res.status(200).json({ message: 'Login successful', token, user: safeUser });
+        res.status(200).json({
+            message: 'Login successful',
+            token,
+            user: safeUser
+        });
+
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -236,17 +356,24 @@ const requestPasswordReset = async (req, res) => {
         if (user) {
             const token = crypto.randomBytes(32).toString('hex');
             user.passwordResetToken = token;
-            user.passwordResetTokenExpires = Date.now() + 15 * 60 * 1000; // 15 minutes
+            user.passwordResetTokenExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
             await user.save();
 
             const resetUrl = `${FRONTEND_URL}/reset-password?token=${encodeURIComponent(token)}`;
             if (resendClient) {
+                console.log('Sending password reset email', {
+                    from: EMAIL_FROM,
+                    to: normalizedEmail,
+                    subject: 'SignNU Password Reset',
+                    resetUrl,
+                });
                 await resendClient.emails.send({
                     from: EMAIL_FROM,
                     to: normalizedEmail,
                     subject: 'SignNU Password Reset',
                     html: `<p>We received a request to reset your SignNU password.</p><p><a href="${resetUrl}">Reset your password</a></p><p>If you did not request this, please ignore this email.</p>`,
                 });
+                console.log('Password reset email send request completed successfully.');
             } else {
                 console.warn('RESEND_API_KEY is not configured. Skipping password reset email.');
             }
@@ -255,6 +382,112 @@ const requestPasswordReset = async (req, res) => {
         res.status(200).json({ message: 'If that email exists, a password reset link has been sent.' });
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+};
+
+const testSendEmail = async (req, res) => {
+    const { email, subject, html, text } = req.body;
+    // Use request email if provided, otherwise fall back to TEST_EMAIL
+    const toEmail = (email || TEST_EMAIL || '').toString().trim();
+    if (!toEmail) {
+        return res.status(400).json({ error: 'Email is required.' });
+    }
+
+    if (!resendClient) {
+        return res.status(500).json({ error: 'Resend API key is not configured.' });
+    }
+
+    try {
+        console.log('Sending test email', {
+            from: EMAIL_FROM,
+            to: toEmail,
+            subject: subject || 'SignNU Test Email',
+        });
+        const sendResponse = await resendClient.emails.send({
+            from: EMAIL_FROM,
+            to: [toEmail],
+            subject: subject || 'SignNU Test Email',
+            html: html || '<strong>This is a SignNU test email.</strong>',
+            text: text || 'This is a SignNU test email.',
+        });
+        console.log('Test email send request completed successfully:', sendResponse);
+
+        return res.status(200).json({ success: true, response: sendResponse });
+    } catch (error) {
+        console.error('Test send email failed:', {
+            error: error?.message || error,
+            stack: error?.stack,
+            request: {
+                from: EMAIL_FROM,
+                to: toEmail,
+                subject: subject || 'SignNU Test Email',
+            },
+        });
+        return res.status(error?.statusCode || 500).json({
+            error: error?.message || 'Failed to send test email.',
+            details: error,
+        });
+    }
+};
+
+const testPasswordResetEmail = async (req, res) => {
+    const { email } = req.body;
+    const normalizedEmail = (email || TEST_EMAIL || '').toLowerCase().trim();
+
+    if (!normalizedEmail) {
+        return res.status(400).json({ error: 'Email is required.' });
+    }
+
+    if (!resendClient) {
+        return res.status(500).json({ error: 'Resend API key is not configured.' });
+    }
+
+    try {
+        const user = await User.findOne({ email: normalizedEmail });
+        if (!user) {
+            return res.status(404).json({ error: 'No user found for that email address.' });
+        }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        user.passwordResetToken = token;
+        user.passwordResetTokenExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+        await user.save();
+
+        const resetUrl = `${FRONTEND_URL}/reset-password?token=${encodeURIComponent(token)}`;
+
+        console.log('Sending test password reset email', {
+            from: EMAIL_FROM,
+            to: normalizedEmail,
+            subject: 'SignNU Test Password Reset',
+            resetUrl,
+        });
+
+        const sendResponse = await resendClient.emails.send({
+            from: EMAIL_FROM,
+            to: normalizedEmail,
+            subject: 'SignNU Test Password Reset',
+            html: `<p>This is a test password reset email from SignNU.</p><p><a href="${resetUrl}">Reset your password</a></p>`,
+            text: `Reset your password: ${resetUrl}`,
+        });
+
+        console.log('Test password reset email sent successfully:', sendResponse);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Test password reset email sent.',
+            resetUrl,
+            response: sendResponse,
+        });
+    } catch (error) {
+        console.error('Test password reset email failed:', {
+            error: error?.message || error,
+            stack: error?.stack,
+            email: normalizedEmail,
+        });
+        return res.status(error?.statusCode || 500).json({
+            error: error?.message || 'Failed to send test password reset email.',
+            details: error,
+        });
     }
 };
 
@@ -367,6 +600,31 @@ const updateUserNotification = async (req, res) => {
     }
 };
 
+const deleteUserNotification = async (req, res) => {
+    const { id, notificationId } = req.params;
+    if (!canAccessUser(req, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    try {
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const notificationIndex = (user.notifications || []).findIndex((notification) => notification.id === notificationId);
+        if (notificationIndex === -1) {
+            return res.status(404).json({ error: 'Notification not found' });
+        }
+
+        const deletedNotification = user.notifications.splice(notificationIndex, 1)[0];
+        await user.save();
+        res.status(200).json({ message: 'Notification dismissed', notification: deletedNotification });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
 // Update a user
 const updateUser = async (req, res) => {
     const { id } = req.params;
@@ -376,6 +634,22 @@ const updateUser = async (req, res) => {
         }
 
         const payload = { ...req.body };
+
+        if (payload.roles) {
+            if (!Array.isArray(payload.roles)) {
+                return res.status(400).json({ error: 'Invalid roles format' });
+            }
+            payload.roles = payload.roles
+                .map((role) => role?.toString?.().trim?.())
+                .filter((role) => typeof role === 'string' && role.length > 0);
+            if (!payload.roles.length) {
+                return res.status(400).json({ error: 'Invalid roles' });
+            }
+            if (!payload.role) {
+                payload.role = payload.roles[0];
+            }
+        }
+
         if (payload.password) {
             const targetUser = await User.findById(id);
             if (!targetUser) {
@@ -410,32 +684,29 @@ const updateUser = async (req, res) => {
 const updateUserRole = async (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
-    const validRoles = [
-        'Department Head',
-        'Dean',
-        'Faculty',
-        'Staff',
-        'Student',
-        'Finance Officer',
-        'Procurement Officer',
-        'VP for Academics',
-        'VP for Finance',
-        'Requester',
-        'Signatory',
-        'Reviewer',
-        'Admin',
-    ];
 
-    if (!role || !validRoles.includes(role)) {
+    if (!role || !role.trim()) {
         return res.status(400).json({ error: 'Invalid role' });
     }
 
     try {
-        const user = await User.findByIdAndUpdate(id, { role }, { new: true, runValidators: true }).select('-password');
+        const roleExists = await Role.exists({ name: role.trim() });
+        if (!roleExists) {
+            return res.status(400).json({ error: 'Invalid role' });
+        }
+
+        const user = await User.findById(id);
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
-        res.status(200).json(user);
+
+        user.role = role.trim();
+        user.roles = Array.from(new Set([role.trim(), ...(user.roles || [])]));
+        await user.save();
+
+        const safeUser = user.toObject();
+        delete safeUser.password;
+        res.status(200).json(safeUser);
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -493,6 +764,30 @@ const uploadRawToCloudinary = (buffer, id, filename) => {
     });
 };
 
+// Detect image MIME type from buffer using magic numbers
+const detectImageMime = (buffer) => {
+    if (!buffer || buffer.length < 12) return null;
+    
+    // PNG magic number: 89 50 4E 47 0D 0A 1A 0A
+    const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    let isPng = true;
+    for (let i = 0; i < pngSignature.length; i++) {
+        if (buffer[i] !== pngSignature[i]) {
+            isPng = false;
+            break;
+        }
+    }
+    if (isPng) return 'image/png';
+    
+    // JPEG magic: first two bytes 0xFF 0xD8
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+        // Optionally check for Exif/JFIF header, but the first two bytes are enough
+        return 'image/jpeg';
+    }
+    
+    return null;
+};
+
 // Update user signature
 const updateSignature = async (req, res) => {
     const { id } = req.params;
@@ -519,6 +814,14 @@ const updateSignature = async (req, res) => {
     else {
         return res.status(400).json({
             error: 'No signature provided. Upload a file or draw a signature.'
+        });
+    }
+
+    const detectedMime = detectImageMime(buffer);
+    
+    if (!detectedMime || (detectedMime !== 'image/png' && detectedMime !== 'image/jpeg')) {
+        return res.status(400).json({
+            error: 'Invalid file type. Only PNG and JPEG images are allowed (based on file content).'
         });
     }
 
@@ -573,6 +876,35 @@ const deleteUser = async (req, res) => {
     }
 };
 
+const getAvailableRoles = async (_req, res) => {
+    try {
+        const managedRoles = await Role.find({}).sort({ name: 1 });
+        if (managedRoles.length > 0) {
+            return res.status(200).json(managedRoles.map((role) => role.name));
+        }
+
+        const roles = await User.distinct('role', { isApproved: true });
+        const filteredRoles = roles
+            .filter(role => role && role.trim() && role !== 'Student')
+            .sort();
+        res.status(200).json(filteredRoles);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const getAvailableDepartments = async (_req, res) => {
+    try {
+        const departments = await User.distinct('department', { isApproved: true });
+        const filteredDepartments = departments
+            .filter(dept => dept && dept.trim())
+            .sort();
+        res.status(200).json(filteredDepartments);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     getAllUsers,
     getUserById,
@@ -582,13 +914,19 @@ module.exports = {
     logoutUser,
     changePassword,
     requestPasswordReset,
+    testSendEmail,
+    testPasswordResetEmail,
     resetPassword,
     getUserNotifications,
     addUserNotification,
     updateUserNotification,
+    deleteUserNotification,
     updateUser,
     updateUserRole,
     updateSignature,
     updatePdf,
     deleteUser,
+    getApproverUsers,
+    getAvailableRoles,
+    getAvailableDepartments,
 };

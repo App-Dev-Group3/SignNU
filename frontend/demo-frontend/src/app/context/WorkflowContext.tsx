@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 /* ===================== TYPES ===================== */
 
 export type FormType = 'ACP' | 'Meal Request' | 'RI' | 'RFP' | 'Item Request';
-export type FormStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'completed';
+export type FormStatus = 'draft' | 'pending' | 'accepted' | 'rejected' | 'completed';
 
 export type UserRole =
   | 'Requester'
@@ -70,7 +70,9 @@ export interface CurrentUser {
   id: string;
   name: string;
   role: UserRole;
+  roles?: string[];
   department?: string;
+  organization?: string;
   email?: string;
   signatureURL?: string;
 }
@@ -105,6 +107,12 @@ export interface FormSubmission {
   aiSummary?: string;
 }
 
+type AuthResult = {
+  success: boolean;
+  pending?: boolean;
+  message?: string;
+};
+
 /* ===================== CONTEXT ===================== */
 
 interface WorkflowContextType {
@@ -116,8 +124,8 @@ interface WorkflowContextType {
   notifications: Notification[];
   qrSessions: QRSession[];
 
-  login: (email: string, password: string) => Promise<boolean>;
-  register: (data: any) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<AuthResult>;
+  register: (data: any) => Promise<AuthResult>;
   logout: () => void;
 
   addForm: (form: Omit<FormSubmission, 'submittedAt' | 'currentStep' | 'signatureMarkers'>) => Promise<FormSubmission | undefined>;
@@ -140,7 +148,7 @@ interface WorkflowContextType {
     assignedSignature: string | null,
     annotations?: Array<{
       id: string;
-      type: 'text' | 'signature';
+      type: 'text' | 'signature' | 'required';
       text: string;
       xPct: number;
       yPct: number;
@@ -156,15 +164,17 @@ interface WorkflowContextType {
 
   addSignatureMarker: (formId: string, marker: Omit<SignatureMarker, 'id'>) => void;
 
-  sendNudge: (formId: string) => void;
+  sendNudge: (formId: string) => Promise<void>;
 
   generateAISummary: (formId: string) => Promise<void>;
 
   addNotification: (formId: string, userId: string, message: string) => Promise<void>;
   markNotificationRead: (notificationId: string) => Promise<void>;
+  dismissNotification: (notificationId: string) => Promise<void>;
 
   downloadFormPDF: (formId: string) => void;
   setCurrentUserSignature: (signatureURL: string) => void;
+  setCurrentUser: React.Dispatch<React.SetStateAction<CurrentUser | null>>;
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);
@@ -172,16 +182,29 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined
 /* ===================== PROVIDER ===================== */
 
 export function WorkflowProvider({ children }: { children: ReactNode }) {
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+  const defaultApiBaseUrl =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : 'http://localhost:4000';
+  const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl).replace(/\/+$/, '');
+  const AUTH_TOKEN_KEY = 'signnu_auth_token';
 
   const authFetch = async (url: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers || undefined);
+    const hasFormDataBody = typeof FormData !== 'undefined' && options.body instanceof FormData;
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+
+    if (!hasFormDataBody && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
     return fetch(url, {
       ...options,
       credentials: 'include',
-      headers: {
-        ...(options.headers || {}),
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
   };
 
@@ -213,12 +236,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           id: data.user._id ?? data.user.id,
           name: data.user.username ?? data.user.email,
           role: data.user.role,
+          roles: Array.isArray(data.user.roles) && data.user.roles.length > 0 ? data.user.roles : [data.user.role],
           email: data.user.email,
           department: data.user.department,
-          signatureURL: data.user.signatureURL ?? data.user.signatureUrl,
+          organization: data.user.organization,
         });
-
-        setIsAuthenticated(true);
       } catch {
         setCurrentUser(null);
         setIsAuthenticated(false);
@@ -253,17 +275,21 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   /* ===================== LOGIN ===================== */
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<AuthResult> => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/users/login`, {
+      const res = await authFetch(`${API_BASE_URL}/api/users/login`, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
       const data = await res.json();
-      if (!res.ok) return false;
+      if (!res.ok) {
+        return {
+          success: false,
+          pending: !!data.pending,
+          message: data.error || 'Unable to sign in',
+        };
+      }
 
       setCurrentUser({
         id: data.user._id,
@@ -273,10 +299,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         signatureURL: data.user.signatureURL ?? data.user.signatureUrl,
       });
 
+      if (data.token) {
+        localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+      }
+
       setIsAuthenticated(true);
-      return true;
+      return { success: true };
     } catch {
-      return false;
+      return { success: false, message: 'Unable to sign in' };
     }
   };
 
@@ -290,6 +320,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore logout errors
     }
+    localStorage.removeItem(AUTH_TOKEN_KEY);
     setCurrentUser(null);
     setIsAuthenticated(false);
   };
@@ -307,35 +338,32 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     };
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/forms`, {
+      const res = await authFetch(`${API_BASE_URL}/api/forms`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(newForm),
       });
 
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error('Failed to save form');
+        const message = data?.error || `Failed to save form (${res.status})`;
+        throw new Error(message);
       }
 
-      const createdForm = await res.json();
+      const createdForm = data;
       setForms((prev) => [createdForm, ...prev]);
       return createdForm;
     } catch (error) {
       console.error('Unable to save form:', error);
+      // still keep a local draft for UX, but signal failure to the caller
       setForms((prev) => [newForm, ...prev]);
-      return newForm;
+      return undefined;
     }
   };
 
   const updateForm = async (id: string, updates: any) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/forms/${id}`, {
+      const res = await authFetch(`${API_BASE_URL}/api/forms/${id}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(updates),
       });
 
@@ -355,7 +383,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   const deleteForm = async (id: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/forms/${id}`, {
+      const res = await authFetch(`${API_BASE_URL}/api/forms/${id}`, {
         method: 'DELETE',
       });
       if (!res.ok) {
@@ -368,12 +396,19 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const getFormById = (id: string) => forms.find((f) => f.id === id);
+  const getFormById = (id: string) => {
+    const form = forms.find((f) => f.id === id);
+    if (!form || !currentUser) return form;
+    if (form.status === 'draft' && String(form.submittedById) !== String(currentUser.id)) {
+      return undefined;
+    }
+    return form;
+  };
 
   useEffect(() => {
     const fetchForms = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/forms`);
+        const res = await authFetch(`${API_BASE_URL}/api/forms`);
         if (!res.ok) throw new Error('Failed to load forms');
 
         const data = await res.json();
@@ -390,7 +425,10 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   const approveStep = async (formId: string, stepId: string) => {
     const form = forms.find((f) => f.id === formId);
-    if (!form) return;
+    if (!form || !currentUser) return;
+
+    const approvedStep = form.approvalSteps.find((s) => s.id === stepId);
+    if (!approvedStep) return;
 
     const approvedSteps = form.approvalSteps.map((s) =>
       s.id === stepId
@@ -408,7 +446,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       ...form,
       approvalSteps: approvedSteps,
       currentStep: isFinalApproval ? form.currentStep : nextPendingStep,
-      status: isFinalApproval ? 'approved' as const : form.status,
+      status: isFinalApproval ? 'accepted' as const : form.status,
     };
 
     setForms((prev) => prev.map((f) => (f.id === formId ? updatedForm : f)));
@@ -417,11 +455,23 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       currentStep: updatedForm.currentStep,
       status: updatedForm.status,
     });
+
+    if (form.submittedById) {
+      const statusMsg = isFinalApproval ? 'accepted' : `approved by ${approvedStep.role}`;
+      await addNotification(
+        formId,
+        form.submittedById,
+        `Your "${form.title}" form has been ${statusMsg}`
+      );
+    }
   };
 
   const rejectStep = async (formId: string, stepId: string, comments: string) => {
     const form = forms.find((f) => f.id === formId);
-    if (!form) return;
+    if (!form || !currentUser) return;
+
+    const rejectedStep = form.approvalSteps.find((s) => s.id === stepId);
+    if (!rejectedStep) return;
 
     const rejectedSteps = form.approvalSteps.map((s) =>
       s.id === stepId
@@ -445,6 +495,15 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       approvalSteps: rejectedSteps,
       status: 'rejected' as const,
     });
+
+    if (form.submittedById) {
+      const commentMsg = comments ? ` (${comments})` : '';
+      await addNotification(
+        formId,
+        form.submittedById,
+        `Your "${form.title}" form was rejected by ${rejectedStep.role}${commentMsg}`
+      );
+    }
   };
 
   /* ===================== QR ===================== */
@@ -505,9 +564,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     const formData = new FormData();
     formData.append('pdfFile', file);
 
-    const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/pdf`, {
+    const res = await authFetch(`${API_BASE_URL}/api/users/${currentUser.id}/pdf`, {
       method: 'PATCH',
-      credentials: 'include',
       body: formData,
     });
 
@@ -528,7 +586,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     assignedSignature: string | null,
     annotations?: Array<{
       id: string;
-      type: 'text' | 'signature';
+      type: 'text' | 'signature' | 'required';
       text: string;
       xPct: number;
       yPct: number;
@@ -553,9 +611,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       formData.append('attachmentId', attachmentId);
     }
 
-    const res = await fetch(`${API_BASE_URL}/api/forms/${formId}/pdf`, {
+    const res = await authFetch(`${API_BASE_URL}/api/forms/${formId}/pdf`, {
       method: 'POST',
-      credentials: 'include',
       body: formData,
     });
 
@@ -586,6 +643,20 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       );
     } catch {
       // ignore mark-read failures silently
+    }
+  };
+
+  const dismissNotification = async (notificationId: string) => {
+    try {
+      await authFetch(
+        `${API_BASE_URL}/api/users/${currentUser?.id}/notifications/${notificationId}`,
+        {
+          method: 'DELETE',
+        }
+      );
+      setNotifications((prev) => prev.filter((notification) => notification.id !== notificationId));
+    } catch {
+      // ignore dismiss failures silently
     }
   };
 
@@ -666,43 +737,41 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     const form = forms.find((f) => f.id === formId);
     if (!form || !currentUser) return;
 
-    const pendingApprovers = form.approvalSteps.filter((step) => step.status === 'pending');
     if (form.submittedById !== currentUser.id && currentUser.role !== 'Admin') {
       toast.error('Only the request owner or an admin can send a nudge');
       return;
     }
 
-    if (pendingApprovers.length === 0) {
-      toast.error('No pending approvers to nudge');
-      return;
-    }
-
     try {
-      await Promise.all(
-        pendingApprovers.map((step) =>
-          authFetch(`${API_BASE_URL}/api/users/${step.userId}/notifications`, {
-            method: 'POST',
-            body: JSON.stringify({
-              formId: form.id,
-              userId: step.userId,
-              message: `${currentUser.name} has nudged you to review the pending request "${form.title}".`,
-            }),
-          })
-        )
-      );
+      const response = await authFetch(`${API_BASE_URL}/api/forms/${formId}/nudge`, {
+        method: 'POST',
+      });
 
-      setForms((prev) =>
-        prev.map((f) =>
-          f.id === formId
-            ? {
-                ...f,
-                lastNudgedAt: new Date().toISOString(),
-              }
-            : f
-        )
-      );
+      const data = await response.json();
+      if (!response.ok) {
+        console.error('Send nudge failed:', data);
+        toast.error(data.error || 'Unable to send nudge');
+        return;
+      }
 
-      toast.success('Nudge sent to pending approvers');
+      if (data.form) {
+        setForms((prev) =>
+          prev.map((f) => (f.id === formId ? { ...f, ...data.form } : f))
+        );
+      } else {
+        setForms((prev) =>
+          prev.map((f) =>
+            f.id === formId
+              ? {
+                  ...f,
+                  lastNudgedAt: new Date().toISOString(),
+                }
+              : f
+          )
+        );
+      }
+
+      toast.success(data.message || 'Nudge sent to pending approvers');
     } catch (error) {
       console.error('Nudge failed:', error);
       toast.error('Unable to send nudge');
@@ -731,45 +800,81 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (data: {
-    name: string;
+    firstName: string;
+    middleInitial?: string;
+    lastName: string;
     email: string;
     password: string;
     role: string;
     department: string;
-  }) => {
+    organization?: string;
+  }): Promise<AuthResult> => {
     try {
+      const fullName = [data.firstName, data.lastName, data.middleInitial]
+        .filter((part) => part && part.trim().length > 0)
+        .join(' ');
+
       const res = await fetch(`${API_BASE_URL}/api/users`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: data.name,
+          firstName: data.firstName,
+          middleInitial: data.middleInitial,
+          lastName: data.lastName,
+          username: fullName,
           email: data.email.toLowerCase().trim(),
           password: data.password,
           role: data.role,
           department: data.department,
+          organization: data.organization,
         }),
       });
 
       const responseData = await res.json();
-      if (!res.ok || !responseData.token || !responseData.user) {
+      if (!res.ok) {
         console.error('Register failed:', responseData);
-        return false;
+        return {
+          success: false,
+          pending: !!responseData.pending,
+          message: responseData.error || 'Unable to create account',
+        };
       }
 
-      setCurrentUser({
-        id: responseData.user._id ?? responseData.user.id,
-        name: responseData.user.username ?? responseData.user.email,
-        role: responseData.user.role,
-        email: responseData.user.email,
-        signatureURL: responseData.user.signatureURL ?? responseData.user.signatureUrl,
-      });
-      setIsAuthenticated(true);
+      if (responseData.pending) {
+        return {
+          success: true,
+          pending: true,
+          message: responseData.message || 'Account request submitted and pending admin approval',
+        };
+      }
 
-      return true;
+      if (!responseData.user) {
+        return {
+          success: false,
+          message: 'Unable to create account',
+        };
+      }
+
+      // If server issued token (auto-approved user), persist session state in client.
+      if (responseData.token) {
+        localStorage.setItem(AUTH_TOKEN_KEY, responseData.token);
+        setCurrentUser({
+          id: responseData.user._id ?? responseData.user.id,
+          name: responseData.user.username ?? responseData.user.email,
+          role: responseData.user.role,
+          email: responseData.user.email,
+          signatureURL: responseData.user.signatureURL ?? responseData.user.signatureUrl,
+        });
+        setIsAuthenticated(true);
+        return { success: true };
+      }
+
+      // Fallback for non-token success responses.
+      return { success: true, pending: !!responseData.pending };
     } catch (error) {
       console.error('Register error:', error);
-      return false;
+      return { success: false, message: 'Unable to create account' };
     }
   };
 
@@ -813,9 +918,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
         addNotification,
         markNotificationRead,
+        dismissNotification,
 
         downloadFormPDF,
         setCurrentUserSignature,
+        setCurrentUser,
       }}
     >
       {children}

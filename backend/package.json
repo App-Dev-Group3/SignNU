@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
+    "migrate:user-names": "node scripts/migrate-user-names.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -12,19 +13,27 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@google/genai": "^1.50.1",
+    "@google/generative-ai": "^0.24.1",
     "bcryptjs": "^2.4.3",
     "body-parser": "^2.2.2",
     "cloudinary": "^2.9.0",
+    "connect-mongo": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.4.1",
     "express-session": "^1.19.0",
     "http-proxy-middleware": "^3.0.5",
+    "install": "^0.13.0",
+    "joi": "^18.1.2",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.1.1",
     "mongoose": "^9.4.1",
     "multer": "^2.1.1",
+    "npm": "^11.13.0",
     "pdf-lib": "^1.17.1",
-    "resend": "^6.10.0"
+    "resend": "^6.12.2",
+    "socket.io": "^4.8.3"
   }
 }
