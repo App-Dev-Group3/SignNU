@@ -192,11 +192,12 @@ export function FormDetails() {
       (att.type === 'application/pdf' || att.name?.toLowerCase().endsWith('.pdf')) &&
       isValidUrl(att.url)
   );
-  const canApprove = currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
-  const canAddSignature = form.approvalSteps.some(
+  const hasApprovalAccess = currentUser.role !== 'Student';
+  const canApprove = hasApprovalAccess && currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
+  const canAddSignature = hasApprovalAccess && form.approvalSteps.some(
     step => step.userId === currentUser.id && step.status !== 'pending'
   );
-  const isCurrentSigner = currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
+  const isCurrentSigner = hasApprovalAccess && currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
   const canOpenSignatureDialog = canAddSignature || isCurrentSigner;
   const canEditDraft = currentUser.id === form.submittedById && form.status === 'draft';
   const canEditApprovalChain = canEditDraft;

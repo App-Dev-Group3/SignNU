@@ -38,7 +38,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     { path: '/new-form', icon: FileText, label: 'New Form' },
     { path: '/messages', icon: MessageSquare, label: 'Messages' },
     { path: '/submissions', icon: FileCheck, label: 'My Submissions' },
-    { path: '/approvals', icon: CheckSquare, label: 'Approval Queue' },
+    ...(currentUser.role === 'Student' ? [] : [{ path: '/approvals', icon: CheckSquare, label: 'Approval Queue' }]),
     { path: '/account-settings', icon: Settings, label: 'Account Settings' },
     ...(currentUser.role === 'Admin'
       ? [

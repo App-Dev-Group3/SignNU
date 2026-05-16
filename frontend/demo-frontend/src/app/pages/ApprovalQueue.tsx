@@ -12,17 +12,35 @@ export function ApprovalQueue() {
     return null;
   }
 
-  const pendingApprovals = forms.filter(f => 
-    f.status === 'pending' && 
-    f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
-  );
+  const hasApprovalAccess = currentUser.role !== 'Student';
 
-  const approvedByMe = forms.filter(f =>
-    f.approvalSteps.some(step => 
-      step.userId === currentUser.id && 
-      (step.status === 'approved' || step.status === 'rejected')
-    )
-  );
+  const pendingApprovals = hasApprovalAccess
+    ? forms.filter(f => 
+        f.status === 'pending' && 
+        f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
+      )
+    : [];
+
+  const approvedByMe = hasApprovalAccess
+    ? forms.filter(f =>
+        f.approvalSteps.some(step => 
+          step.userId === currentUser.id && 
+          (step.status === 'approved' || step.status === 'rejected')
+        )
+      )
+    : [];
+
+  if (!hasApprovalAccess) {
+    return (
+      <div className="p-8">
+        <div className="max-w-4xl mx-auto text-center py-16">
+          <Clock className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+          <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Approval Access</h2>
+          <p className="text-gray-600 mb-6">Students are not permitted to approve requests.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8">

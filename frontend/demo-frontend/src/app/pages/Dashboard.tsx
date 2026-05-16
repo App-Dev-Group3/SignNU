@@ -19,21 +19,28 @@ export function Dashboard() {
   const myNotifications = notifications.filter(n => n.userId === currentUser.id);
   const unreadCount = myNotifications.filter(n => !n.read).length;
 
-  const pendingApprovals = forms.filter(f =>
-    f.status === 'pending' &&
-    f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
-  );
+  const hasApprovalAccess = currentUser.role !== 'Student';
+
+  const pendingApprovals = hasApprovalAccess
+    ? forms.filter(f =>
+        f.status === 'pending' &&
+        f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
+      )
+    : [];
 
   const pendingSubmissions = mySubmissions.filter(f => f.status === 'pending').length;
   const approvedByMe = forms.filter(f => f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'approved')).length;
   const rejectedByMe = forms.filter(f => f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'rejected')).length;
+  const myApproved = mySubmissions.filter(f => f.status === 'approved' || f.status === 'accepted').length;
+  const myRejected = mySubmissions.filter(f => f.status === 'rejected').length;
+  const showRequestStats = mySubmissions.length > 0;
 
   const stats = [
     { title: 'Total Submissions', value: mySubmissions.length, icon: FileText, color: 'text-[#3B82F6]', bg: 'bg-[#3B82F6]/10' },
     { title: 'Pending Requests', value: pendingSubmissions, icon: Clock, color: 'text-[#F59E0B]', bg: 'bg-[#F59E0B]/10' },
     { title: 'Pending Approvals', value: pendingApprovals.length, icon: Bell, color: 'text-[#EAB308]', bg: 'bg-[#EAB308]/10' },
-    { title: currentUser.role === 'Requester' ? 'Accepted' : 'Approved', value: currentUser.role === 'Requester' ? mySubmissions.filter(f => f.status === 'accepted').length : approvedByMe, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
-    { title: currentUser.role === 'Requester' ? 'Rejected' : 'Rejected', value: currentUser.role === 'Requester' ? mySubmissions.filter(f => f.status === 'rejected').length : rejectedByMe, icon: AlertCircle, color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10' },
+    { title: 'Approved', value: showRequestStats ? myApproved : approvedByMe, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
+    { title: 'Rejected', value: showRequestStats ? myRejected : rejectedByMe, icon: AlertCircle, color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10' },
   ];
 
   const visibleForms = forms.filter(form =>
@@ -269,31 +276,32 @@ export function Dashboard() {
             </CardContent>
           </Card>
 
-          {/* APPROVALS */}
-          <Card className="bg-white/80 backdrop-blur-xl border border-[#35408e]/10 shadow-xl rounded-xl">
-            <CardHeader>
-              <CardTitle className="text-[#35408e]">Pending Approval</CardTitle>
-              <CardDescription>Needs your action</CardDescription>
-            </CardHeader>
+          {hasApprovalAccess && (
+            <Card className="bg-white/80 backdrop-blur-xl border border-[#35408e]/10 shadow-xl rounded-xl">
+              <CardHeader>
+                <CardTitle className="text-[#35408e]">Pending Approval</CardTitle>
+                <CardDescription>Needs your action</CardDescription>
+              </CardHeader>
 
-            <CardContent>
-              {pendingApprovals.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <CheckCircle className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                  No pending approvals
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pendingApprovals.map(form => (
-                    <Link key={form.id} to={`/form/${form.id}`} className="block p-4 rounded-lg border border-[#35408e]/10 hover:bg-[#35408e]/5 transition">
-                      <p className="font-medium text-[#35408e]">{form.title}</p>
-                      <p className="text-sm text-gray-600">{form.submittedBy}</p>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              <CardContent>
+                {pendingApprovals.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <CheckCircle className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                    No pending approvals
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {pendingApprovals.map(form => (
+                      <Link key={form.id} to={`/form/${form.id}`} className="block p-4 rounded-lg border border-[#35408e]/10 hover:bg-[#35408e]/5 transition">
+                        <p className="font-medium text-[#35408e]">{form.title}</p>
+                        <p className="text-sm text-gray-600">{form.submittedBy}</p>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
         </div>
 

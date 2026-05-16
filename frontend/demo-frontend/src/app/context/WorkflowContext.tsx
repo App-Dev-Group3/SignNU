@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 /* ===================== TYPES ===================== */
 
 export type FormType = 'ACP' | 'Meal Request' | 'RI' | 'RFP' | 'Item Request';
-export type FormStatus = 'draft' | 'pending' | 'accepted' | 'rejected' | 'completed';
+export type FormStatus = 'draft' | 'pending' | 'accepted' | 'approved' | 'rejected' | 'completed';
 
 export type UserRole =
   | 'Requester'
@@ -464,6 +464,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const fetchForms = async () => {
+      if (!isAuthenticated) {
+        setForms([]);
+        return;
+      }
+
       try {
         const res = await authFetch(`${API_BASE_URL}/api/forms`);
         if (!res.ok) throw new Error('Failed to load forms');
@@ -472,11 +477,12 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         setForms(data);
       } catch (error) {
         console.error('Unable to load forms:', error);
+        setForms([]);
       }
     };
 
     fetchForms();
-  }, []);
+  }, [API_BASE_URL, isAuthenticated]);
 
   /* ===================== APPROVAL ===================== */
 

@@ -31,13 +31,13 @@ export function MySubmissions() {
     }
   };
 
-  const isAcceptedStatus = (status: string) => status === 'accepted' || status === 'approved';
+  const isApprovedStatus = (status: string) => status === 'accepted' || status === 'approved';
 
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'accepted':
       case 'approved':
-        return 'Accepted';
+        return 'Approved';
       case 'rejected':
         return 'Rejected';
       default:
@@ -66,7 +66,7 @@ export function MySubmissions() {
       const matchesStatus =
         statusFilter === 'all' ||
         f.status === statusFilter ||
-        (statusFilter === 'accepted' && isAcceptedStatus(f.status));
+        (statusFilter === 'approved' && isApprovedStatus(f.status));
       return matchesSearch && matchesStatus;
     });
 
@@ -98,7 +98,7 @@ export function MySubmissions() {
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="draft">Draft</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="accepted">Accepted</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
             </SelectContent>
           </Select>
