@@ -17,6 +17,7 @@ const roleRoutes = require('./routes/roleRoutes');
 const officeRoutes = require('./routes/officeRoutes');
 const departmentRoutes = require('./routes/departmentRoutes');
 const messageRoutes = require('./routes/messageRoutes');
+const Role = require('./models/role');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const ALLOWED_ORIGINS = new Set(
   [FRONTEND_URL, 'http://localhost:5173', 'https://sign-nu-alpha.vercel.app']
@@ -518,8 +519,15 @@ app.use((req, res) => {
 
 // 7. Connect to MongoDB & Start Server
 mongoose.connect(process.env.MONGO_URI)
-    .then(() => {
-    server.listen(PORT, '0.0.0.0', () => {
+    .then(async () => {
+        try {
+            await Role.syncIndexes();
+            console.log('Role indexes synchronized with schema.');
+        } catch (indexError) {
+            console.warn('Failed to sync Role indexes:', indexError.message);
+        }
+
+        server.listen(PORT, '0.0.0.0', () => {
             console.log(`Connected to DB, Server and Chatbot running on port ${PORT}`);
         });
     })

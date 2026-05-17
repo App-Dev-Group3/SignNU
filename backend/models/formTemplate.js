@@ -5,8 +5,8 @@ const ApprovalStepSchema = new Schema({
   id: { type: String, required: true },
   role: { type: String, required: true },
   department: { type: String, default: '' },
-  userId: { type: String, required: true },
-  userName: { type: String, required: true },
+  userId: { type: String, default: '' },
+  userName: { type: String, default: '' },
   status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
 }, { _id: false });
 

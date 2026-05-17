@@ -51,16 +51,26 @@ const uploadImageToCloudinary = (buffer, originalName) => {
 
 const generateTemplateId = () => `template-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+const normalizeText = (value) => {
+  if (typeof value !== 'string') return '';
+  return value.trim().toLowerCase();
+};
+
+const isManualDepartmentStep = (department) => {
+  const normalized = normalizeText(department);
+  return normalized === '__manual_department__' || normalized.includes('manual');
+};
+
 const normalizeApprovalSteps = (steps) => {
   if (!Array.isArray(steps)) return [];
   return steps
-    .filter((step) => step && step.role && step.userId && step.userName)
+    .filter((step) => step && step.role && (isManualDepartmentStep(step.department) || (step.userId && step.userName)))
     .map((step, index) => ({
       id: step.id || `step-${Date.now()}-${index}`,
       role: step.role,
       department: step.department || '',
-      userId: step.userId,
-      userName: step.userName,
+      userId: step.userId || '',
+      userName: step.userName || '',
       status: step.status || 'pending',
     }));
 };

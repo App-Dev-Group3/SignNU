@@ -31,7 +31,8 @@ export function AdminTemplates() {
   const [users, setUsers] = useState<Array<any>>([]);
   const [templates, setTemplates] = useState<Array<any>>([]);
   const [offices, setOffices] = useState<Array<{ id: string; name: string }>>([]);
-  const [managedRoles, setManagedRoles] = useState<Array<{ id: string; name: string }>>([]);
+  const [managedRoles, setManagedRoles] = useState<Array<{ id: string; name: string; officeId?: string; departmentId?: string }>>([]);
+  const [managedDepartments, setManagedDepartments] = useState<Array<{ id: string; name: string }>>([]);
   const [templateTitle, setTemplateTitle] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
   const [templateType, setTemplateType] = useState<FormType | ''>('');
@@ -64,7 +65,7 @@ export function AdminTemplates() {
     setError(null);
 
     try {
-      const [usersRes, templatesRes, rolesRes, officesRes] = await Promise.all([
+      const [usersRes, templatesRes, rolesRes, officesRes, departmentsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/users`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
@@ -81,13 +82,19 @@ export function AdminTemplates() {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         }),
+        fetch(`${API_BASE_URL}/api/departments`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        }),
       ]);
 
-      if (!usersRes.ok || !templatesRes.ok || !rolesRes.ok) {
+      if (!usersRes.ok || !templatesRes.ok || !rolesRes.ok || !officesRes.ok || !departmentsRes.ok) {
         const errorParts = [];
         if (!usersRes.ok) errorParts.push(`users(${usersRes.status})`);
         if (!templatesRes.ok) errorParts.push(`templates(${templatesRes.status})`);
         if (!rolesRes.ok) errorParts.push(`roles(${rolesRes.status})`);
+        if (!officesRes.ok) errorParts.push(`offices(${officesRes.status})`);
+        if (!departmentsRes.ok) errorParts.push(`departments(${departmentsRes.status})`);
         throw new Error(`Failed to load: ${errorParts.join(', ')}`);
       }
 
@@ -95,9 +102,20 @@ export function AdminTemplates() {
       const templatesData = await templatesRes.json();
       const rolesData = await rolesRes.json();
       const officesData = await officesRes.json();
+      const departmentsData = await departmentsRes.json();
       setUsers(usersData);
       setTemplates(Array.isArray(templatesData) ? templatesData : []);
-      setManagedRoles(Array.isArray(rolesData) ? rolesData.map((role) => ({ id: role.id || role._id, name: role.name || role })) : []);
+      setManagedRoles(Array.isArray(rolesData)
+        ? rolesData.map((role) => ({
+            id: role.id || role._id,
+            name: role.name || role,
+            officeId: role.officeId || '',
+            departmentId: role.departmentId || '',
+          }))
+        : []);
+      setManagedDepartments(Array.isArray(departmentsData)
+        ? departmentsData.map((dept) => ({ id: dept.id || dept._id, name: dept.name || dept }))
+        : []);
       setOffices(Array.isArray(officesData) ? officesData.map((office) => ({ id: office.id || office._id, name: office.name || office })) : []);
     } catch (err: any) {
       setError(err?.message || 'Unable to load templates.');
@@ -117,7 +135,9 @@ export function AdminTemplates() {
     ]);
   };
 
-  const updateTemplateStep = (index: number, key: 'role' | 'userId', value: string) => {
+  const normalizeRole = (role: string) => role.trim().toLowerCase();
+
+  const updateTemplateStep = (index: number, key: 'role' | 'userId' | 'department', value: string) => {
     setTemplateApprovalSteps((prev) =>
       prev.map((step, idx) => {
         if (idx !== index) return step;
@@ -129,7 +149,27 @@ export function AdminTemplates() {
             userName: user ? user.username || user.name || user.email : '',
           };
         }
-        return { ...step, [key]: value };
+
+        if (key === 'role') {
+          const nextRole = value;
+          const departmentOptions = getRoleDepartments(nextRole);
+          const nextDepartment = departmentOptions.length === 1 ? departmentOptions[0] : '';
+          return {
+            ...step,
+            role: nextRole,
+            department: nextDepartment,
+            userId: '',
+            userName: '',
+          };
+        }
+
+        const nextDepartment = value;
+        return {
+          ...step,
+          department: nextDepartment,
+          userId: '',
+          userName: '',
+        };
       })
     );
   };
@@ -149,9 +189,12 @@ export function AdminTemplates() {
       return;
     }
 
-    const invalidStep = templateApprovalSteps.some((step) => !step.role.trim() || !step.userId.trim());
+    const invalidStep = templateApprovalSteps.some((step) => {
+      const isManual = isManualDepartment(step.department);
+      return !step.role.trim() || (!step.userId.trim() && !isManual);
+    });
     if (invalidStep) {
-      setTemplateError('Every approval step must include a role and approver.');
+      setTemplateError('Every approval step must include a role and approver, unless the department is manual.');
       return;
     }
 
@@ -269,7 +312,39 @@ export function AdminTemplates() {
     }
   };
 
-  const roleOptions = managedRoles.length > 0 ? managedRoles.map((role) => role.name) : roles;
+  const roleOptions = managedRoles.length > 0 ? Array.from(new Set(managedRoles.map((role) => role.name))) : roles;
+  const MANUAL_DEPARTMENT_VALUE = '__MANUAL_DEPARTMENT__';
+  const MANUAL_DEPARTMENT_LABEL = 'Manual (requester chooses department)';
+  const isManualDepartment = (department: string) => department === MANUAL_DEPARTMENT_VALUE;
+
+  const getRoleDepartments = (roleName: string) => {
+    const normalizedRole = normalizeRole(roleName);
+    if (!normalizedRole) return [];
+
+    return Array.from(
+      new Set(
+        managedRoles
+          .filter((role) => normalizeRole(role.name) === normalizedRole && role.departmentId)
+          .map((role) => managedDepartments.find((dept) => dept.id === role.departmentId)?.name)
+          .filter(Boolean),
+      ),
+    );
+  };
+
+  const getApproverOptionsForRole = (role: string, department: string) => {
+    const normalizedRole = normalizeRole(role);
+    if (!normalizedRole) {
+      return [];
+    }
+
+    return users.filter((user) => {
+      const userRole = normalizeRole(user.role || (Array.isArray(user.roles) ? user.roles[0] : ''));
+      const matchesRole = userRole === normalizedRole;
+      if (!matchesRole) return false;
+      if (!department) return true;
+      return normalizeRole(user.department || '') === normalizeRole(department);
+    });
+  };
 
   const editTemplate = (template: any) => {
     setEditingTemplateId(template.id);
@@ -283,7 +358,10 @@ export function AdminTemplates() {
       (template.approvalSteps || []).map((step: any) => ({
         id: step.id || `step-${Date.now()}`,
         role: step.role || '',
-        department: step.department || '',
+        department:
+          managedDepartments.find((dept) => normalizeRole(dept.name) === normalizeRole(step.department))?.name ||
+          step.department ||
+          '',
         userId: step.userId || '',
         userName: step.userName || '',
       }))
@@ -437,49 +515,81 @@ export function AdminTemplates() {
                 </div>
 
                 <div className="space-y-3">
-                  {templateApprovalSteps.map((step, index) => (
-                    <div key={step.id} className="grid gap-3 md:grid-cols-[1fr_1fr_auto] items-end">
-                      <div className="space-y-2">
-                        <Label>Role</Label>
-                        <Select value={step.role} onValueChange={(value) => updateTemplateStep(index, 'role', value)}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select approval role" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {roleOptions.map((role) => (
-                              <SelectItem key={role} value={role}>{role}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Approver</Label>
-                        <Select value={step.userId} onValueChange={(value) => updateTemplateStep(index, 'userId', value)}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select approver" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {users
-                              .filter((user) => user.role !== 'Student')
-                              .map((user) => (
-                                <SelectItem key={user._id} value={user._id}>
-                                  {user.username || user.email} — {user.role}
+                  {templateApprovalSteps.map((step, index) => {
+                    const departmentOptions = getRoleDepartments(step.role);
+                    return (
+                      <div key={step.id} className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto] items-end">
+                        <div className="space-y-2">
+                          <Label>Role</Label>
+                          <Select value={step.role} onValueChange={(value) => updateTemplateStep(index, 'role', value)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select approval role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {roleOptions.map((role) => (
+                                <SelectItem key={role} value={role}>{role}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Department</Label>
+                          <Select
+                            value={step.department}
+                            onValueChange={(value) => updateTemplateStep(index, 'department', value)}
+                            disabled={departmentOptions.length === 0}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder={departmentOptions.length > 0 ? 'Select department' : 'No department'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {departmentOptions.map((department) => (
+                                <SelectItem key={department} value={department}>
+                                  {department}
                                 </SelectItem>
                               ))}
-                          </SelectContent>
-                        </Select>
+                              {departmentOptions.length > 0 && (
+                                <SelectItem key={MANUAL_DEPARTMENT_VALUE} value={MANUAL_DEPARTMENT_VALUE}>
+                                  {MANUAL_DEPARTMENT_LABEL}
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Approver</Label>
+                          <Select
+                            value={step.userId}
+                            onValueChange={(value) => updateTemplateStep(index, 'userId', value)}
+                            disabled={!step.role.trim() || isManualDepartment(step.department)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder={isManualDepartment(step.department) ? 'Not required for manual department' : step.role ? 'Select approver' : 'Choose a role first'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {!isManualDepartment(step.department) && getApproverOptionsForRole(step.role, step.department).map((user) => (
+                                <SelectItem key={user._id} value={user._id}>
+                                  {user.username || user.name || user.email} — {Array.isArray(user.roles) ? user.roles.join(', ') : user.role}{user.department ? ` (${user.department})` : ''}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {isManualDepartment(step.department) && (
+                            <p className="text-xs text-gray-500">Requester will choose the department and approver at form submission time.</p>
+                          )}
+                        </div>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          type="button"
+                          onClick={() => removeTemplateStep(index)}
+                          disabled={templateApprovalSteps.length <= 1}
+                        >
+                          Remove
+                        </Button>
                       </div>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        type="button"
-                        onClick={() => removeTemplateStep(index)}
-                        disabled={templateApprovalSteps.length <= 1}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

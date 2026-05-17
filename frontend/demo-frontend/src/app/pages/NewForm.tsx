@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useWorkflow, FormType, FormStatus } from '../context/WorkflowContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -73,10 +73,11 @@ export function NewForm() {
   const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string; department?: string }>>([]);
   type ApprovalRoleOption = { id: string; name: string; officeId?: string | null };
   const [approvalRoleOptions, setApprovalRoleOptions] = useState<ApprovalRoleOption[]>([]);
-  const [approvalSteps, setApprovalSteps] = useState<Array<{ id?: string; role: string; roleId?: string; officeId?: string | null; department: string; userId: string; userName: string }>>([]);
-  const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id?: string; role: string; roleId?: string; officeId?: string | null; department: string; userId: string; userName: string }>>([]);
+  const [approvalSteps, setApprovalSteps] = useState<Array<{ id?: string; role: string; roleId?: string; officeId?: string | null; department: string; userId: string; userName: string; templateDepartmentManual?: boolean }>>([]);
+  const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id?: string; role: string; roleId?: string; officeId?: string | null; department: string; userId: string; userName: string; templateDepartmentManual?: boolean }>>([]);
   const [formTemplates, setFormTemplates] = useState<Array<any>>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const CUSTOM_TEMPLATE_VALUE = '__custom_template__';
   const [managedRoleNames, setManagedRoleNames] = useState<string[]>([]);
   const [userLoadError, setUserLoadError] = useState<string | null>(null);
   const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
@@ -302,7 +303,21 @@ export function NewForm() {
       setFormData((prev) => ({ ...prev, office: office.name }));
       setOfficeImageUrl(office.imageUrl || '');
     }
+    const selectedTemplate = formTemplates.find((template) => template.id === selectedTemplateId);
+    if (selectedTemplate && selectedTemplate.officeId && selectedTemplate.officeId !== officeId) {
+      setSelectedTemplateId('');
+      setTemplateApprovalSteps([]);
+      setTemplateChainApplied(false);
+      setIsCustomApprovalChain(false);
+    }
   };
+
+  const availableTemplates = useMemo(() => {
+    return formTemplates.filter((template) => {
+      if (!template.officeId) return true;
+      return template.officeId === selectedOfficeId;
+    });
+  }, [formTemplates, selectedOfficeId]);
 
   const openOfficeDialog = (office?: { id: string; name: string; imageUrl?: string | null }) => {
     setEditingOfficeId(office?.id ?? '');
@@ -460,6 +475,7 @@ export function NewForm() {
           department: step.department || '',
           userId: step.userId || '',
           userName: step.userName || '',
+          templateDepartmentManual: step.department === MANUAL_DEPARTMENT_VALUE,
         }));
         setApprovalSteps(mappedTemplateSteps);
         setTemplateChainApplied(true);
@@ -485,15 +501,15 @@ export function NewForm() {
   const applySelectedTemplate = async (templateId: string) => {
     setSelectedTemplateId(templateId);
 
-    if (!templateId) {
+    if (!templateId || templateId === CUSTOM_TEMPLATE_VALUE) {
       setAttachments([]);
       setSupportingDocs([]);
       setTemplatePdfFile(null);
       setGeneratedPdfUrl('');
       setTemplateApprovalSteps([]);
       setApprovalSteps([]);
-      setFormType('');
       setTemplateChainApplied(false);
+      setIsCustomApprovalChain(true);
       return;
     }
 
@@ -508,6 +524,7 @@ export function NewForm() {
       department: step.department || '',
       userId: step.userId || '',
       userName: step.userName || '',
+      templateDepartmentManual: step.department === MANUAL_DEPARTMENT_VALUE,
     }));
 
     setFormType(template.type);
@@ -540,8 +557,10 @@ export function NewForm() {
     await loadTemplatePdfFile(template);
   };
 
+  const isCustomTemplate = (templateId: string) => templateId === CUSTOM_TEMPLATE_VALUE;
+
   useEffect(() => {
-    if (!selectedTemplateId) {
+    if (!selectedTemplateId || isCustomTemplate(selectedTemplateId)) {
       return;
     }
 
@@ -556,6 +575,7 @@ export function NewForm() {
       department: step.department || '',
       userId: step.userId || '',
       userName: step.userName || '',
+      templateDepartmentManual: step.department === MANUAL_DEPARTMENT_VALUE,
     }));
 
     setTemplateApprovalSteps(mappedTemplateSteps);
@@ -870,30 +890,56 @@ export function NewForm() {
     }
   };
 
+  const MANUAL_DEPARTMENT_VALUE = '__MANUAL_DEPARTMENT__';
+  const MANUAL_DEPARTMENT_LABEL = 'Manual (requester chooses department)';
+  const isManualDepartment = (department: string) => normalizeText(department) === normalizeText(MANUAL_DEPARTMENT_VALUE);
   const normalizeRole = (role: string) => normalizeText(role);
 
-  const findMatchingUserForStep = (role: string) => {
+  const findMatchingUserForStep = (role: string, department?: string) => {
     const targetRole = normalizeRole(role);
+    const normalizedDepartment = department ? normalizeText(department) : '';
 
     if (!targetRole) {
       return null;
     }
 
-    return availableUsers.find((user) => normalizeRole(user.role) === targetRole) ?? null;
+    return availableUsers.find((user) => {
+      const matchesRole = normalizeRole(user.role) === targetRole;
+      if (!matchesRole) return false;
+      if (!normalizedDepartment) return true;
+      return normalizeText(user.department) === normalizedDepartment;
+    }) ?? null;
   };
 
-  const getApproverOptions = (role: string) => {
+  const getApproverOptions = (role: string, department?: string) => {
     if (!normalizeRole(role)) {
       return [];
     }
 
     const targetRole = normalizeRole(role);
-    return availableUsers.filter((user) => normalizeRole(user.role) === targetRole);
+    const normalizedDepartment = department ? normalizeText(department) : '';
+    if (isManualDepartment(department || '')) {
+      return [];
+    }
+
+    return availableUsers.filter((user) => {
+      const matchesRole = normalizeRole(user.role) === targetRole;
+      if (!matchesRole) return false;
+      if (!normalizedDepartment) return true;
+      return normalizeText(user.department) === normalizedDepartment;
+    });
   };
 
-  const hasExactApproverForStep = (role: string) => {
+  const hasExactApproverForStep = (role: string, department?: string) => {
     if (!normalizeRole(role)) return false;
-    return availableUsers.some((user) => normalizeRole(user.role) === normalizeRole(role));
+    const targetRole = normalizeRole(role);
+    const normalizedDepartment = department ? normalizeText(department) : '';
+    return availableUsers.some((user) => {
+      const matchesRole = normalizeRole(user.role) === targetRole;
+      if (!matchesRole) return false;
+      if (!normalizedDepartment || isManualDepartment(department || '')) return true;
+      return normalizeText(user.department) === normalizedDepartment;
+    });
   };
 
   const buildApprovalSteps = (type: FormType) => {
@@ -931,12 +977,13 @@ export function NewForm() {
 
   const updateApprovalStepDepartment = (index: number, department: string) => {
     const currentRole = approvalSteps[index]?.role || '';
-    const matchedUser = findMatchingUserForStep(currentRole);
+    const matchedUser = findMatchingUserForStep(currentRole, department);
     setApprovalSteps((prev) => prev.map((step, idx) => {
       if (idx !== index) return step;
       return {
         ...step,
         department,
+        templateDepartmentManual: step.templateDepartmentManual,
         userId: matchedUser?.id || '',
         userName: matchedUser?.name || '',
       };
@@ -1176,17 +1223,42 @@ export function NewForm() {
                   <Label htmlFor="templateSelect">Request Template *</Label>
                   <Select value={selectedTemplateId} onValueChange={(value) => applySelectedTemplate(value)}>
                     <SelectTrigger id="templateSelect">
-                      <SelectValue placeholder="Select an admin-created form" />
+                      <SelectValue placeholder="Select an admin-created form or custom request" />
                     </SelectTrigger>
                     <SelectContent>
-                      {formTemplates.map((template) => (
+                      <SelectItem key="custom" value={CUSTOM_TEMPLATE_VALUE}>
+                        Custom request (manual approval chain)
+                      </SelectItem>
+                      {availableTemplates.length === 0 && (
+                        <SelectItem key="no-templates" value="no-templates" disabled>
+                          No templates available for selected office
+                        </SelectItem>
+                      )}
+                      {availableTemplates.map((template: any) => (
                         <SelectItem key={template.id} value={template.id}>
                           {template.title} ({template.type})
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {selectedTemplateId && (
+                  {selectedTemplateId === CUSTOM_TEMPLATE_VALUE && (
+                    <div className="space-y-2">
+                      <Label htmlFor="formType">Form Type *</Label>
+                      <Select value={formType} onValueChange={(value) => setFormType(value as FormType)}>
+                        <SelectTrigger id="formType">
+                          <SelectValue placeholder="Select form type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {formTypes.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {type}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {selectedTemplateId && !isCustomTemplate(selectedTemplateId) && (
                     <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
                       <div className="font-medium">Selected template</div>
                       <div>{formTemplates.find((template) => template.id === selectedTemplateId)?.description}</div>
@@ -1454,19 +1526,41 @@ export function NewForm() {
                             <div className="text-gray-500 text-xs">Choose a role for each approval step and then select the matching approver.</div>
                           </div>
                           <div className="space-y-2">
+                            {step.templateDepartmentManual && (
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium">Department</Label>
+                                <Select
+                                  value={step.department === MANUAL_DEPARTMENT_VALUE ? '' : step.department}
+                                  onValueChange={(value) => updateApprovalStepDepartment(index, value)}
+                                  disabled={!step.role.trim()}
+                                >
+                                  <SelectTrigger className="h-11">
+                                    <SelectValue placeholder="Select department" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {Array.from(new Set(availableUsers.map((user) => user.department).filter(Boolean))).sort().map((department) => (
+                                      <SelectItem key={department} value={department!}>
+                                        {department}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-xs text-gray-500">Choose the department for this step so the right approver can be assigned.</p>
+                              </div>
+                            )}
                             <Label className="text-sm font-medium">Approver</Label>
                             <Select
                               value={step.userId}
                               onValueChange={(value) => handleApproverChange(index, value)}
-                              disabled={!step.role.trim() || !isCustomApprovalChain}
+                              disabled={!step.role.trim() || (step.templateDepartmentManual && step.department === MANUAL_DEPARTMENT_VALUE) || (!isCustomApprovalChain && !step.templateDepartmentManual)}
                             >
                               <SelectTrigger className="h-11">
-                                <SelectValue placeholder={step.role.trim() ? 'Select approver' : 'Choose a role first'} />
+                                <SelectValue placeholder={step.role.trim() ? (isManualDepartment(step.department) ? 'Select approver after department' : 'Select approver') : 'Choose a role first'} />
                               </SelectTrigger>
                               <SelectContent>
-                                {getApproverOptions(step.role).map((user) => (
+                                {getApproverOptions(step.role, isManualDepartment(step.department) ? step.department : step.department).map((user) => (
                                   <SelectItem key={user.id} value={user.id}>
-                                    {user.name} {user.role ? `(${user.role})` : ''}
+                                    {user.name} {user.role ? `(${user.role})` : ''}{user.department ? ` — ${user.department}` : ''}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

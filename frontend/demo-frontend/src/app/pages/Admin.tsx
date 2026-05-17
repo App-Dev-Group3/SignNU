@@ -45,6 +45,8 @@ export function Admin() {
   const [officeRoleError, setOfficeRoleError] = useState<string | null>(null);
   const [departmentError, setDepartmentError] = useState<string | null>(null);
   const [accountSearch, setAccountSearch] = useState('');
+  const [accountTypeFilter, setAccountTypeFilter] = useState('');
+  const [accountDepartmentFilter, setAccountDepartmentFilter] = useState('');
   const [pendingRoleRequests, setPendingRoleRequests] = useState<Array<any>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -561,15 +563,25 @@ export function Admin() {
 
   const filteredUsers = useMemo(() => {
     const query = accountSearch.trim().toLowerCase();
-    if (!query) return users;
 
     return users.filter((user) => {
+      const userType = (user.userType || '').toLowerCase();
+      const department = (user.department || '').toLowerCase();
+
+      if (accountTypeFilter && userType !== accountTypeFilter.toLowerCase()) {
+        return false;
+      }
+
+      if (accountDepartmentFilter && department !== accountDepartmentFilter.toLowerCase()) {
+        return false;
+      }
+
+      if (!query) return true;
+
       const name = (user.username || `${user.firstName || ''} ${user.lastName || ''}`).toLowerCase();
       const email = (user.email || '').toLowerCase();
-      const department = (user.department || '').toLowerCase();
       const role = (user.role || '').toLowerCase();
       const organization = (user.organization || '').toLowerCase();
-      const userType = (user.userType || '').toLowerCase();
       const councilRole = (user.councilRole || '').toLowerCase();
       const employeeRole = (user.employeeRole || '').toLowerCase();
 
@@ -584,7 +596,7 @@ export function Admin() {
         employeeRole.includes(query)
       );
     });
-  }, [users, accountSearch]);
+  }, [users, accountSearch, accountTypeFilter, accountDepartmentFilter]);
 
   if (!currentUser || currentUser.role !== 'Admin') {
     return <Navigate to="/" replace />;
@@ -867,42 +879,73 @@ export function Admin() {
             <CardTitle>Accounts</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="mb-4">
-              <input
-                type="search"
-                value={accountSearch}
-                onChange={(e) => setAccountSearch(e.target.value)}
-                placeholder="Search accounts by name, email, department, organization, or role..."
-                className="w-full rounded-lg border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
-              />
+            <div className="grid gap-3 md:grid-cols-3 mb-4">
+              <div>
+                <Label htmlFor="accountSearch">Search</Label>
+                <input
+                  id="accountSearch"
+                  type="search"
+                  value={accountSearch}
+                  onChange={(e) => setAccountSearch(e.target.value)}
+                  placeholder="Search accounts..."
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <Label htmlFor="accountTypeFilter">User Type</Label>
+                <select
+                  id="accountTypeFilter"
+                  value={accountTypeFilter}
+                  onChange={(e) => setAccountTypeFilter(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">All Types</option>
+                  <option value="Student">Student</option>
+                  <option value="Employee">Employee</option>
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="accountDepartmentFilter">Department</Label>
+                <select
+                  id="accountDepartmentFilter"
+                  value={accountDepartmentFilter}
+                  onChange={(e) => setAccountDepartmentFilter(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">All Departments</option>
+                  {departmentOptions.map((department) => (
+                    <option key={department} value={department}>{department}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
             {isLoading && users.length === 0 ? (
               <p>Loading accounts...</p>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto text-sm">
                 <table className="min-w-full text-left border-collapse">
                   <thead>
                     <tr>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Name</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Email</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Department</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Organization</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">User Type</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Student Council</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Council Role</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Employee Role</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Roles</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Status</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Actions</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Name</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Email</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Department</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Organization</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">User Type</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Student Council</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Council Role</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Employee Role</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Roles</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Status</th>
+                      <th className="p-2 border-b border-gray-200 text-sm font-semibold">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredUsers.map((user) => (
                       <tr key={user._id} className={`hover:bg-gray-50 ${!user.isApproved ? 'bg-yellow-50' : ''}`}>
-                        <td className="p-3 border-b border-gray-200">{user.username || user.email}</td>
-                        <td className="p-3 border-b border-gray-200">{user.email}</td>
-                        <td className="p-3 border-b border-gray-200">
+                        <td className="p-2 border-b border-gray-200">{user.username || user.email}</td>
+                        <td className="p-2 border-b border-gray-200">{user.email}</td>
+                        <td className="p-2 border-b border-gray-200">
                           <select
                             value={user.department || ''}
                             onChange={(e) => updateDepartment(user._id, e.target.value)}
@@ -914,10 +957,10 @@ export function Admin() {
                             ))}
                           </select>
                         </td>
-                        <td className="p-3 border-b border-gray-200">
+                        <td className="p-2 border-b border-gray-200">
                           {user.organization || '-'}
                         </td>
-                        <td className="p-3 border-b border-gray-200">
+                        <td className="p-2 border-b border-gray-200">
                           <select
                             value={user.userType || 'Employee'}
                             onChange={(e) => updateUserData(user._id, { userType: e.target.value, ...(e.target.value === 'Employee' ? { isCouncilMember: false, councilRole: '' } : {}) })}
@@ -927,7 +970,7 @@ export function Admin() {
                             <option value="Student">Student</option>
                           </select>
                         </td>
-                        <td className="p-3 border-b border-gray-200">
+                        <td className="p-2 border-b border-gray-200">
                           {user.userType === 'Student' ? (
                             <select
                               value={user.isCouncilMember ? 'yes' : 'no'}
@@ -941,7 +984,7 @@ export function Admin() {
                             '-'
                           )}
                         </td>
-                        <td className="p-3 border-b border-gray-200">
+                        <td className="p-2 border-b border-gray-200">
                           {user.userType === 'Student' && user.isCouncilMember ? (
                             <select
                               value={user.councilRole || ''}
@@ -957,7 +1000,7 @@ export function Admin() {
                             '-'
                           )}
                         </td>
-                        <td className="p-3 border-b border-gray-200">
+                        <td className="p-2 border-b border-gray-200">
                           {user.userType === 'Employee' ? (
                             <select
                               value={user.employeeRole || ''}
@@ -973,7 +1016,7 @@ export function Admin() {
                             '-'
                           )}
                         </td>
-                        <td className="p-3 border-b border-gray-200">
+                        <td className="p-2 border-b border-gray-200">
                           <div className="space-y-2">
                             <div className="text-sm text-gray-700 flex flex-wrap gap-2">
                               {(Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : [])).map((roleItem: string) => (
@@ -1019,7 +1062,7 @@ export function Admin() {
                             </div>
                           </div>
                         </td>
-                        <td className="p-3 border-b border-gray-200">
+                        <td className="p-2 border-b border-gray-200">
                           {(() => {
                             const status = user.status || 'active';
                             return (
@@ -1040,7 +1083,7 @@ export function Admin() {
                             );
                           })()}
                         </td>
-                        <td className="p-3 border-b border-gray-200 flex flex-wrap gap-2 items-center">
+                        <td className="p-2 border-b border-gray-200 flex flex-wrap gap-2 items-center">
                           {!user.isApproved && (
                             <button
                               onClick={() => approveExistingUser(user._id)}

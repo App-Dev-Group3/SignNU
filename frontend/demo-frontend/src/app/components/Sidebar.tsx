@@ -10,7 +10,9 @@ import {
   MessageSquare,
   Users,
   X,
+  ChevronsLeftRight,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useWorkflow } from '../context/WorkflowContext';
 import { Button } from './ui/button';
 
@@ -20,9 +22,25 @@ type SidebarProps = {
 };
 
 export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { currentUser, logout } = useWorkflow();
+
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' && window.localStorage.getItem('sidebar_collapsed');
+    setCollapsed(saved === 'true');
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('sidebar_collapsed', next ? 'true' : 'false');
+      }
+      return next;
+    });
+  };
 
   if (!currentUser) return null;
 
@@ -52,39 +70,53 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#35408e] flex flex-col text-white shadow-2xl transition-transform duration-300 ease-out md:static md:translate-x-0 md:shadow-none ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+      className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#35408e] flex flex-col text-white shadow-2xl transition-all duration-300 ease-out md:static md:translate-x-0 md:shadow-none ${collapsed ? 'md:w-28' : 'md:w-64'} ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       aria-label="Sidebar navigation"
     >
 
       {/* HEADER */}
-      <div className="flex items-start justify-between gap-3 p-6 border-b border-white/10">
-        <div className="flex items-center gap-3">
+      <div className={`flex items-center gap-3 p-6 border-b border-white/10 ${collapsed ? 'justify-center' : 'justify-between'}`}>
+        {!collapsed && (
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#ffd41c] rounded-lg flex items-center justify-center shadow-md">
+              <Pencil className="w-6 h-6 text-[#35408e]" />
+            </div>
 
-          <div className="w-10 h-10 bg-[#ffd41c] rounded-lg flex items-center justify-center shadow-md">
-            <Pencil className="w-6 h-6 text-[#35408e]" />
+            <div className="flex flex-col items-start md:items-center">
+              <span className="font-semibold text-[#ffd41c] text-base">
+                SignNU
+              </span>
+              <p className="text-xs text-white/70">NU Laguna</p>
+            </div>
           </div>
+        )}
 
-          <div>
-            <h1 className="font-semibold text-[#ffd41c]">SignNU</h1>
-            <p className="text-xs text-white/70">NU Laguna</p>
-          </div>
-
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            onClick={toggleCollapsed}
+            variant="ghost"
+            className="hidden h-9 px-3 text-white hover:bg-white/10 md:inline-flex"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? '>' : '<'}
+          </Button>
+          <Button
+            type="button"
+            onClick={onClose}
+            variant="ghost"
+            className="h-9 w-9 p-0 text-white hover:bg-white/10 md:hidden"
+            aria-label="Close sidebar"
+          >
+            <X className="h-5 w-5" />
+          </Button>
         </div>
-
-        <Button
-          type="button"
-          onClick={onClose}
-          variant="ghost"
-          className="h-9 w-9 p-0 text-white hover:bg-white/10 md:hidden"
-          aria-label="Close sidebar"
-        >
-          <X className="h-5 w-5" />
-        </Button>
       </div>
 
       {/* USER INFO */}
       <div className="p-4 border-b border-white/10">
-        <div className="flex items-center gap-3">
+        <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''}`}>
 
           <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center">
             <span className="text-sm font-semibold text-[#ffd41c]">
@@ -92,7 +124,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             </span>
           </div>
 
-          <div>
+          <div className={collapsed ? 'hidden' : ''}>
             <p className="text-sm font-medium text-white">
               {currentUser.name}
             </p>
@@ -116,7 +148,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
               <li key={item.path}>
                 <Link
                   to={item.path}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200
+                  title={item.label}
+                  className={`flex items-center ${collapsed ? 'justify-center' : 'justify-start'} gap-3 ${collapsed ? 'px-0 py-3' : 'px-4 py-3'} rounded-lg transition-all duration-200
                     ${
                       isActive
                         ? 'bg-[#ffd41c] text-[#35408e] font-semibold shadow-md'
@@ -128,7 +161,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                       isActive ? 'text-[#35408e]' : 'text-[#ffd41c]'
                     }`}
                   />
-                  <span className="text-sm">
+                  <span className={`${collapsed ? 'sr-only' : 'text-sm'}`}>
                     {item.label}
                   </span>
                 </Link>
@@ -144,13 +177,13 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
         <Button
           onClick={handleLogout}
-          className="w-full bg-[#ffd41c] hover:bg-[#e6c01f] text-[#35408e] font-semibold shadow-md transition-all hover:scale-[1.02]"
+          className={`w-full flex items-center justify-center bg-[#ffd41c] hover:bg-[#e6c01f] text-[#35408e] font-semibold shadow-md transition-all hover:scale-[1.02] ${collapsed ? 'px-0' : ''}`}
         >
-          <LogOut className="w-4 h-4 mr-2" />
-          Logout
+          <LogOut className={`w-4 h-4 ${collapsed ? '' : 'mr-2'}`} />
+          {!collapsed && 'Logout'}
         </Button>
 
-        <p className="text-xs text-white/60 text-center mt-2">
+        <p className={`text-xs text-white/60 text-center mt-2 ${collapsed ? 'hidden' : ''}`}>
           © 2026 NU Laguna
         </p>
 
