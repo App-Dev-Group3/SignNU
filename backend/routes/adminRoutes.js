@@ -161,6 +161,14 @@ router.put(
             const safeUser = user.toObject();
             delete safeUser.password;
 
+            const io = req.app?.get('io');
+            if (io) {
+                io.emit('account-request:status-changed', {
+                    _id: request._id,
+                    status: request.status,
+                });
+            }
+
             return res.status(200).json({
                 message: 'Account request approved and user created',
                 user: safeUser,
@@ -195,6 +203,14 @@ router.put(
             request.reviewedAt = new Date();
             request.reviewNote = (req.body?.note || '').toString().trim() || undefined;
             await request.save();
+
+            const io = req.app?.get('io');
+            if (io) {
+                io.emit('account-request:status-changed', {
+                    _id: request._id,
+                    status: request.status,
+                });
+            }
 
             return res.status(200).json({
                 message: 'Account request rejected',

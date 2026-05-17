@@ -75,6 +75,11 @@ export function AdminPendingAccounts() {
       });
     });
 
+    socketConnection.on('account-request:status-changed', (payload) => {
+      if (!payload?._id) return;
+      setRequests((prevRequests) => prevRequests.filter((request) => request._id !== payload._id));
+    });
+
     socketConnection.on('connect_error', (socketError) => {
       console.warn('Socket connection failed:', socketError);
     });

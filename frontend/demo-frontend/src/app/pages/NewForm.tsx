@@ -16,9 +16,11 @@ const formTypes: FormType[] = ['ACP', 'Meal Request', 'RI', 'RFP', 'Item Request
 
 const approvalChains: Record<FormType, Array<{ role: string; userId: string; userName: string }>> = {
   'ACP': [
-    { role: 'Department Head', userId: 'user-1', userName: 'Juan Dela Cruz' },
-    { role: 'Dean', userId: 'user-3', userName: 'Robert Garcia' },
-    { role: 'VP for Academics', userId: 'user-4', userName: 'Anna Reyes' },
+    { role: 'SDAO Assistant', userId: 'user-1', userName: 'SDAO Assistant' },
+    { role: 'SDAO Coordinator', userId: 'user-2', userName: 'SDAO Coordinator' },
+    { role: 'SDAO Supervisor', userId: 'user-3', userName: 'SDAO Supervisor' },
+    { role: 'Academic Services Director', userId: 'user-4', userName: 'Academic Services Director' },
+    { role: 'Executive Director / Senior Academic Director', userId: 'user-5', userName: 'Executive Director / Senior Academic Director' },
   ],
   'Meal Request': [
     { role: 'Department Head', userId: 'user-1', userName: 'Juan Dela Cruz' },
@@ -60,14 +62,19 @@ export function NewForm() {
   const [formType, setFormType] = useState<FormType | ''>('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<Record<string, any>>({
+    adviserSigned: false,
+    requiresDeanSignature: false,
+    deanSigned: false,
+  });
   const [attachments, setAttachments] = useState<Array<{ id?: string; name: string; size: number; type: string; url?: string }>>([]);
   const [supportingDocs, setSupportingDocs] = useState<Array<{ id: string; name: string; size: number; type: string; url?: string }>>([]);
   const [templatePdfFile, setTemplatePdfFile] = useState<File | null>(null);
   const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; name: string; role: string; department?: string }>>([]);
-  const [approvalRoleOptions, setApprovalRoleOptions] = useState<string[]>([]);
-  const [approvalSteps, setApprovalSteps] = useState<Array<{ id?: string; role: string; department: string; userId: string; userName: string }>>([]);
-  const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id?: string; role: string; department: string; userId: string; userName: string }>>([]);
+  type ApprovalRoleOption = { id: string; name: string; officeId?: string | null };
+  const [approvalRoleOptions, setApprovalRoleOptions] = useState<ApprovalRoleOption[]>([]);
+  const [approvalSteps, setApprovalSteps] = useState<Array<{ id?: string; role: string; roleId?: string; officeId?: string | null; department: string; userId: string; userName: string }>>([]);
+  const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id?: string; role: string; roleId?: string; officeId?: string | null; department: string; userId: string; userName: string }>>([]);
   const [formTemplates, setFormTemplates] = useState<Array<any>>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [managedRoleNames, setManagedRoleNames] = useState<string[]>([]);
@@ -110,6 +117,35 @@ export function NewForm() {
     }
   };
 
+  const getApprovalRoleLabel = (option: ApprovalRoleOption) => {
+    const office = option.officeId ? offices.find((office) => office.id === option.officeId)?.name : undefined;
+    return office ? `${option.name} (${office})` : option.name;
+  };
+
+  const approvalRoleSelectionOptions: ApprovalRoleOption[] = (() => {
+    const optionMap = new Map<string, ApprovalRoleOption>();
+    const getKey = (option: ApprovalRoleOption) => `${normalizeText(option.name)}|${option.officeId || ''}`;
+
+    approvalRoleOptions.forEach((option) => {
+      const key = getKey(option);
+      if (normalizeText(option.name) && !optionMap.has(key)) {
+        optionMap.set(key, option);
+      }
+    });
+
+    Object.values(approvalChains)
+      .flatMap((chain) => chain.map((step) => step.role))
+      .forEach((roleName) => {
+        const normalized = normalizeText(roleName);
+        const key = `${normalized}|`;
+        if (normalized && !optionMap.has(key)) {
+          optionMap.set(key, { id: roleName.trim(), name: roleName.trim(), officeId: null });
+        }
+      });
+
+    return Array.from(optionMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
   useEffect(() => {
     const fetchUsers = async () => {
       try {
@@ -145,7 +181,9 @@ export function NewForm() {
           }
         });
 
-        const uniqueRoles = Array.from(uniqueRoleMap.values()).sort() as string[];
+        const uniqueRoles = Array.from(uniqueRoleMap.values())
+          .sort()
+          .map((name) => ({ id: name, name }));
 
         if (managedRoleNames.length === 0) {
           setApprovalRoleOptions(uniqueRoles);
@@ -163,7 +201,7 @@ export function NewForm() {
   useEffect(() => {
     const fetchRoles = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/users/roles`, {
+        const response = await fetch(`${API_BASE_URL}/api/users/roles?detail=true`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         });
@@ -174,11 +212,23 @@ export function NewForm() {
         }
         const data = await response.json();
         if (Array.isArray(data) && data.length > 0) {
-          const normalizedRoleNames = data
-            .map((role: any) => String(role || '').trim())
-            .filter((role: string) => role.length > 0);
-          setManagedRoleNames(normalizedRoleNames);
-          setApprovalRoleOptions(normalizedRoleNames);
+          if (typeof data[0] === 'object' && data[0] !== null) {
+            const roles = data
+              .map((role: any) => ({
+                id: String(role.id || role.name || ''),
+                name: String(role.name || '').trim(),
+                officeId: role.officeId || null,
+              }))
+              .filter((role: any) => role.name.length > 0);
+            setManagedRoleNames(roles.map((role) => role.name));
+            setApprovalRoleOptions(roles);
+          } else {
+            const normalizedRoleNames = data
+              .map((role: any) => String(role || '').trim())
+              .filter((role: string) => role.length > 0);
+            setManagedRoleNames(normalizedRoleNames);
+            setApprovalRoleOptions(normalizedRoleNames.map((name) => ({ id: name, name })));
+          }
         }
       } catch (error) {
         console.warn('Error loading shared roles:', error);
@@ -595,7 +645,12 @@ export function NewForm() {
         attachments: [],
         approvalSteps: approvalSteps.map((step, index) => ({
           id: `step-${Date.now()}-${index}`,
-          ...step,
+          role: step.role,
+          roleId: step.roleId,
+          userId: step.userId,
+          userName: step.userName,
+          department: step.department,
+          officeId: step.officeId,
           status: 'pending' as const,
         })),
         signatures: requesterSignatureEntry,
@@ -706,6 +761,16 @@ export function NewForm() {
       return;
     }
 
+    if (formType === 'ACP' && !formData.adviserSigned) {
+      toast.error('ACP requests must include an adviser signature before submission');
+      return;
+    }
+
+    if (formType === 'ACP' && formData.requiresDeanSignature && !formData.deanSigned) {
+      toast.error('This ACP requires a dean signature before submission');
+      return;
+    }
+
     if (approvalSteps.length === 0 || approvalSteps.some((step) => !step.role.trim() || !step.userId)) {
       toast.error('Please enter a role and select an approver for every approval step');
       return;
@@ -769,7 +834,12 @@ export function NewForm() {
           formData,
           approvalSteps: approvalSteps.map((step, index) => ({
             id: step.id ?? `step-${Date.now()}-${index}`,
-            ...step,
+            role: step.role,
+            roleId: step.roleId,
+            userId: step.userId,
+            userName: step.userName,
+            department: step.department,
+            officeId: step.officeId,
             status: 'pending' as const,
           })),
           attachments: [
@@ -832,6 +902,8 @@ export function NewForm() {
       return {
         id: `step-${Date.now()}-${index}`,
         role: step.role,
+        roleId: undefined,
+        officeId: undefined,
         department: '',
         userId: matchedUser?.id || '',
         userName: matchedUser?.name || '',
@@ -839,13 +911,18 @@ export function NewForm() {
     });
   };
 
-  const updateApprovalStepRole = (index: number, role: string) => {
-    const matchedUser = findMatchingUserForStep(role);
+  const updateApprovalStepRole = (index: number, roleId: string) => {
+    const selectedRole = approvalRoleSelectionOptions.find((option) => option.id === roleId)
+      || approvalRoleSelectionOptions.find((option) => normalizeText(option.name) === normalizeText(roleId))
+      || { id: roleId, name: roleId, officeId: undefined };
+    const matchedUser = findMatchingUserForStep(selectedRole.name);
     setApprovalSteps((prev) => prev.map((step, idx) => {
       if (idx !== index) return step;
       return {
         ...step,
-        role,
+        role: selectedRole.name,
+        roleId: selectedRole.id,
+        officeId: selectedRole.officeId || undefined,
         userId: matchedUser?.id || '',
         userName: matchedUser?.name || '',
       };
@@ -882,7 +959,7 @@ export function NewForm() {
   const addApprovalStep = () => {
     setApprovalSteps((prev) => [
       ...prev,
-      { id: `step-${Date.now()}-${prev.length}`, role: '', department: '', userId: '', userName: '' },
+      { id: `step-${Date.now()}-${prev.length}`, role: '', roleId: undefined, officeId: undefined, department: '', userId: '', userName: '' },
     ]);
   };
 
@@ -923,17 +1000,17 @@ export function NewForm() {
     }
 
     setApprovalSteps((prevSteps) => prevSteps.map((step) => {
-      if (step.userId || !step.role.trim()) {
-        return step;
-      }
-      const matchedUser = findMatchingUserForStep(step.role);
-      return matchedUser ? {
+      const matchedRole = approvalRoleOptions.find((option) => normalizeRole(option.name) === normalizeRole(step.role));
+      const matchedUser = step.userId || !step.role.trim() ? null : findMatchingUserForStep(step.role);
+      return {
         ...step,
-        userId: matchedUser.id,
-        userName: matchedUser.name,
-      } : step;
+        roleId: step.roleId || matchedRole?.id,
+        officeId: step.officeId || matchedRole?.officeId || undefined,
+        userId: step.userId || matchedUser?.id || '',
+        userName: step.userName || matchedUser?.name || step.userName,
+      };
     }));
-  }, [availableUsers, formType]);
+  }, [availableUsers, formType, approvalRoleOptions]);
 
   return (
     <div className="p-8">
@@ -1270,6 +1347,52 @@ export function NewForm() {
                 </div>
               )}
 
+              {formType === 'ACP' && (
+                <div className="space-y-4 rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                  <h2 className="text-sm font-semibold text-orange-800">ACP Signature Requirements</h2>
+                  <p className="text-sm text-orange-700">
+                    Before submission, confirm the adviser signature. If Dean approval is required, mark it below and confirm the dean signature as well.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Adviser signature attached</Label>
+                      <select
+                        value={formData.adviserSigned ? 'yes' : 'no'}
+                        onChange={(e) => setFormData({ ...formData, adviserSigned: e.target.value === 'yes' })}
+                        className="w-full border rounded-lg px-3 py-2"
+                      >
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Dean signature required</Label>
+                      <select
+                        value={formData.requiresDeanSignature ? 'yes' : 'no'}
+                        onChange={(e) => setFormData({ ...formData, requiresDeanSignature: e.target.value === 'yes', deanSigned: false })}
+                        className="w-full border rounded-lg px-3 py-2"
+                      >
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </select>
+                    </div>
+                    {formData.requiresDeanSignature && (
+                      <div className="space-y-2">
+                        <Label>Dean signature attached</Label>
+                        <select
+                          value={formData.deanSigned ? 'yes' : 'no'}
+                          onChange={(e) => setFormData({ ...formData, deanSigned: e.target.value === 'yes' })}
+                          className="w-full border rounded-lg px-3 py-2"
+                        >
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Approval Chain Preview */}
               {formType && (
                 <div className="space-y-2">
@@ -1316,14 +1439,14 @@ export function NewForm() {
                               </div>
                               <div className="font-medium">Approval step</div>
                             </div>
-                            <Select value={step.role} onValueChange={(value) => updateApprovalStepRole(index, value)} disabled={!isCustomApprovalChain}>
+                            <Select value={step.roleId || step.role || ''} onValueChange={(value) => updateApprovalStepRole(index, value)} disabled={!isCustomApprovalChain}>
                               <SelectTrigger className="h-11">
                                 <SelectValue placeholder="Select role" />
                               </SelectTrigger>
                               <SelectContent>
-                                {approvalRoleOptions.map((role) => (
-                                  <SelectItem key={role} value={role}>
-                                    {role}
+                                {approvalRoleSelectionOptions.map((option) => (
+                                  <SelectItem key={`${option.id}-${option.officeId || 'global'}`} value={option.id}>
+                                    {getApprovalRoleLabel(option)}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

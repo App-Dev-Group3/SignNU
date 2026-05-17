@@ -403,7 +403,6 @@ const requestPasswordReset = async (req, res) => {
         const user = await User.findOne({ email: normalizedEmail });
 
         if (user) {
-            // Allow deactivated accounts to request password reset.
             const code = String(Math.floor(100000 + Math.random() * 900000));
             const token = crypto.randomBytes(32).toString('hex');
             const expires = Date.now() + 3 * 60 * 1000; // 3 minutes
@@ -618,9 +617,6 @@ const resetPassword = async (req, res) => {
         }
 
         user.password = await bcrypt.hash(newPassword, 10);
-        if (user.status === 'deactivated') {
-            user.status = 'active';
-        }
         user.passwordResetToken = undefined;
         user.passwordResetTokenExpires = undefined;
         user.passwordResetCode = undefined;
@@ -1161,6 +1157,10 @@ const deleteUser = async (req, res) => {
             return res.status(403).json({ error: 'Only deactivated accounts can be deleted' });
         }
         await user.deleteOne();
+        const io = req.app?.get('io');
+        if (io) {
+            io.emit('user:deleted', { _id: user._id });
+        }
         res.status(200).json({ message: 'User deleted successfully', user });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -1196,10 +1196,20 @@ const updateUserStatus = async (req, res) => {
     }
 };
 
-const getAvailableRoles = async (_req, res) => {
+const getAvailableRoles = async (req, res) => {
     try {
-        const managedRoles = await Role.find({}).sort({ name: 1 });
+        const detail = String(req.query.detail || '').toLowerCase() === 'true';
+        const officeId = req.query.officeId ? String(req.query.officeId).trim() : null;
+        const filter = {};
+        if (officeId) {
+            filter.officeId = officeId;
+        }
+
+        const managedRoles = await Role.find(filter).sort({ officeId: 1, name: 1 });
         if (managedRoles.length > 0) {
+            if (detail) {
+                return res.status(200).json(managedRoles.map((role) => ({ id: role._id, name: role.name, officeId: role.officeId || null })));
+            }
             return res.status(200).json(managedRoles.map((role) => role.name));
         }
 
