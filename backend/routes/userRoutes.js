@@ -24,6 +24,7 @@ const {
     updateUserNotification,
     deleteUserNotification,
     updateUser,
+    updateUserStatus,
     updateUserRole,
     createRoleRequest,
     getUserRoleRequests,
@@ -165,6 +166,7 @@ router.get('/:id/role-requests', authMiddleware, getUserRoleRequests);
 // ======================
 router.get('/', authMiddleware, adminMiddleware, getAllUsers);
 router.get('/:id', authMiddleware, getUserById);
+router.patch('/:id/status', authMiddleware, adminMiddleware, updateUserStatus);
 router.patch('/:id', authMiddleware, updateUser);
 router.patch('/:id/role', authMiddleware, adminMiddleware, updateUserRole);
 

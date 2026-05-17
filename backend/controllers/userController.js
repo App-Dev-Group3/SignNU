@@ -265,6 +265,10 @@ const loginUser = async (req, res) => {
             });
         }
 
+        if (user.status === 'deactivated') {
+            return res.status(403).json({ error: 'Account is deactivated' });
+        }
+
         const safeUser = user.toObject();
         delete safeUser.password;
 
@@ -399,6 +403,7 @@ const requestPasswordReset = async (req, res) => {
         const user = await User.findOne({ email: normalizedEmail });
 
         if (user) {
+            // Allow deactivated accounts to request password reset.
             const code = String(Math.floor(100000 + Math.random() * 900000));
             const token = crypto.randomBytes(32).toString('hex');
             const expires = Date.now() + 3 * 60 * 1000; // 3 minutes
@@ -613,6 +618,9 @@ const resetPassword = async (req, res) => {
         }
 
         user.password = await bcrypt.hash(newPassword, 10);
+        if (user.status === 'deactivated') {
+            user.status = 'active';
+        }
         user.passwordResetToken = undefined;
         user.passwordResetTokenExpires = undefined;
         user.passwordResetCode = undefined;
@@ -753,6 +761,15 @@ const updateUser = async (req, res) => {
             payload.role = payload.roles[0];
         } else if (payload.role) {
             payload.roles = [payload.role.toString().trim()];
+        }
+
+        if (payload.status) {
+            if (req.user.role !== 'Admin') {
+                return res.status(403).json({ error: 'Forbidden' });
+            }
+            if (!['active', 'deactivated'].includes(payload.status)) {
+                return res.status(400).json({ error: 'Invalid account status' });
+            }
         }
 
         if (payload.password) {
@@ -1136,11 +1153,44 @@ const deleteUser = async (req, res) => {
     }
 
     try {
-        const user = await User.findByIdAndDelete(id);
+        const user = await User.findById(id);
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
+        if (user.status !== 'deactivated') {
+            return res.status(403).json({ error: 'Only deactivated accounts can be deleted' });
+        }
+        await user.deleteOne();
         res.status(200).json({ message: 'User deleted successfully', user });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+const updateUserStatus = async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!['active', 'deactivated'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid account status' });
+    }
+
+    try {
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        if (req.user.role !== 'Admin') {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+
+        user.status = status;
+        await user.save();
+
+        const safeUser = user.toObject();
+        delete safeUser.password;
+        res.status(200).json(safeUser);
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -1198,6 +1248,7 @@ module.exports = {
     updateUserNotification,
     deleteUserNotification,
     updateUser,
+    updateUserStatus,
     updateUserRole,
     createRoleRequest,
     getUserRoleRequests,

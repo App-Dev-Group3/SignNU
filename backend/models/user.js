@@ -102,6 +102,12 @@ const userSchema = new Schema({
     }
   },
 
+  status: {
+    type: String,
+    enum: ['active', 'deactivated'],
+    default: 'active',
+  },
+
   department: { type: String },
   notifications: [NotificationSchema],
   signatureURL: { type: String },

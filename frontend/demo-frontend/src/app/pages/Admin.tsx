@@ -150,6 +150,29 @@ export function Admin() {
     }
   };
 
+  const updateUserStatus = async (userId: string, status: 'active' | 'deactivated') => {
+    const previousUsers = users;
+    setUsers((prev) => prev.map((user) => user._id === userId ? { ...user, status } : user));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/${userId}/status`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || 'Failed to update account status');
+      }
+      const updatedUser = await response.json();
+      setUsers((prev) => prev.map((user) => user._id === updatedUser._id ? updatedUser : user));
+    } catch (err: any) {
+      setUsers(previousUsers);
+      setError(err?.message || 'Could not update account status');
+    }
+  };
+
   const saveRole = async () => {
     if (!roleName.trim()) {
       setRoleError('Role name is required.');
@@ -675,21 +698,39 @@ export function Admin() {
                           </div>
                         </td>
                         <td className="p-3 border-b border-gray-200">
-                          {!user.isApproved ? (
+                          {(() => {
+                            const status = user.status || 'active';
+                            return (
+                              <div className="space-y-2">
+                                <div className={`text-sm font-semibold ${status === 'deactivated' ? 'text-red-600' : 'text-green-600'}`}>
+                                  {status === 'deactivated' ? 'Deactivated' : 'Active'}
+                                </div>
+                                <select
+                                  value={status}
+                                  onChange={(e) => updateUserStatus(user._id, e.target.value as 'active' | 'deactivated')}
+                                  className="w-full border rounded-lg px-3 py-2"
+                                  disabled={user._id === currentUser.id}
+                                >
+                                  <option value="active">Active</option>
+                                  <option value="deactivated">Deactivated</option>
+                                </select>
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td className="p-3 border-b border-gray-200 flex flex-wrap gap-2 items-center">
+                          {!user.isApproved && (
                             <button
                               onClick={() => approveExistingUser(user._id)}
                               className="px-3 py-1 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
                             >
                               Approve
                             </button>
-                          ) : (
-                            <span className="text-sm text-green-600 font-semibold">Approved</span>
                           )}
-                        </td>
-                        <td className="p-3 border-b border-gray-200">
                           <button
                             onClick={() => deleteUser(user._id)}
-                            className="px-3 py-1 bg-gray-800 text-white text-sm rounded-lg hover:bg-gray-900"
+                            disabled={(user.status || 'active') !== 'deactivated'}
+                            className={`px-3 py-1 text-sm rounded-lg ${((user.status || 'active') !== 'deactivated') ? 'bg-gray-300 text-gray-700 cursor-not-allowed' : 'bg-gray-800 text-white hover:bg-gray-900'}`}
                           >
                             Delete
                           </button>
