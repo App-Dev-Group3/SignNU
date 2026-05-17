@@ -427,8 +427,15 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       const createdForm = data;
       setForms((prev) => [createdForm, ...prev]);
       return createdForm;
-    } catch (error) {
-      console.error('Unable to save form:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unable to save form';
+      if (message.includes('Form validation failed')) {
+        toast.warning(message);
+        console.warn('Unable to save form:', error);
+      } else {
+        toast.error(message);
+        console.error('Unable to save form:', error);
+      }
       // still keep a local draft for UX, but signal failure to the caller
       setForms((prev) => [newForm, ...prev]);
       return undefined;

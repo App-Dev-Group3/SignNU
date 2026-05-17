@@ -85,6 +85,7 @@ export function NewForm() {
   const [showPdfEditor, setShowPdfEditor] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [generatedPdfUrl, setGeneratedPdfUrl] = useState('');
+  const [isPdfSaved, setIsPdfSaved] = useState(false);
   const [draftCreated, setDraftCreated] = useState(false);
   const [templateChainApplied, setTemplateChainApplied] = useState(false);
   const [isCustomApprovalChain, setIsCustomApprovalChain] = useState(false);
@@ -300,7 +301,10 @@ export function NewForm() {
     const office = offices.find((item) => item.id === officeId);
     setSelectedOfficeId(officeId);
     if (office) {
-      setFormData((prev) => ({ ...prev, office: office.name }));
+      setFormData((prev) => ({
+        ...prev,
+        office: selectedTemplateId === CUSTOM_TEMPLATE_VALUE ? false : office.name,
+      }));
       setOfficeImageUrl(office.imageUrl || '');
     }
     const selectedTemplate = formTemplates.find((template) => template.id === selectedTemplateId);
@@ -456,6 +460,7 @@ export function NewForm() {
       const file = new File([blob], `${template.title || 'template'}.pdf`, { type: 'application/pdf' });
       setTemplatePdfFile(file);
       setPdfSourceFile(file);
+      setIsPdfSaved(false);
       return file;
     } catch (error) {
       console.warn('Could not load template PDF file', error);
@@ -508,6 +513,7 @@ export function NewForm() {
       setGeneratedPdfUrl('');
       setTemplateApprovalSteps([]);
       setApprovalSteps([]);
+      setFormData((prev) => ({ ...prev, office: false }));
       setTemplateChainApplied(false);
       setIsCustomApprovalChain(true);
       return;
@@ -609,17 +615,11 @@ export function NewForm() {
       } else if (pdfUrl.startsWith('blob:')) {
         inUrl = pdfUrl;
       } else {
-        const response = await fetch(pdfUrl);
-        if (!response.ok) throw new Error('Failed to fetch PDF for preview');
-        let blob = await response.blob();
-        if (blob.type !== 'application/pdf') {
-          blob = new Blob([blob], { type: 'application/pdf' });
-        }
-        inUrl = URL.createObjectURL(blob);
+        inUrl = pdfUrl;
       }
 
       if (!inUrl) throw new Error('Unable to create preview URL');
-      if (pdfViewerUrl && pdfViewerUrl.startsWith('blob:')) {
+      if (pdfViewerUrl && pdfViewerUrl.startsWith('blob:') && pdfViewerUrl !== inUrl) {
         URL.revokeObjectURL(pdfViewerUrl);
       }
       setPdfViewerUrl(inUrl);
@@ -703,6 +703,7 @@ export function NewForm() {
       setAttachments([
         { name: sourcePdf.name, size: sourcePdf.size, type: sourcePdf.type, url: pdfUrl },
       ]);
+      setIsPdfSaved(true);
       toast.success('PDF saved successfully');
     } catch (error: any) {
       console.error('PDF save failed:', error);
@@ -781,12 +782,12 @@ export function NewForm() {
       return;
     }
 
-    if (formType === 'ACP' && !formData.adviserSigned) {
-      toast.error('ACP requests must include an adviser signature before submission');
-      return;
-    }
+if (formType === 'ACP' && !isCustomApprovalChain && !formData.adviserSigned) {
+        toast.error('ACP requests must include an adviser signature before submission');
+        return;
+      }
 
-    if (formType === 'ACP' && formData.requiresDeanSignature && !formData.deanSigned) {
+      if (formType === 'ACP' && !isCustomApprovalChain && formData.requiresDeanSignature && !formData.deanSigned) {
       toast.error('This ACP requires a dean signature before submission');
       return;
     }
@@ -1633,78 +1634,62 @@ export function NewForm() {
                 )}
               </div>
 
-              <>
-                {/* <div className="space-y-2">
+              {selectedTemplateId === CUSTOM_TEMPLATE_VALUE && (
+                <div className="space-y-2">
                   <Label htmlFor="sourcePdf">Document</Label>
                   <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                    {!selectedTemplateId ? (
-                      <>
-                        <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                        <p className="text-sm text-gray-600 mb-2">Upload the PDF you want to send for approval</p>
-                        <Input
-                          id="sourcePdf"
-                          type="file"
-                          accept="application/pdf"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0] ?? null;
-                            if (file && file.type !== 'application/pdf') {
-                              toast.error('Please select a PDF file');
-                              return;
-                            }
-                            setPdfSourceFile(file);
-                          }}
-                          className="hidden"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => document.getElementById('sourcePdf')?.click()}
-                        >
-                          Select PDF
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-sm text-gray-600 mb-2">Edit this template copy for your request.</p>
-                        <div className="text-left">
-                          <p className="font-medium">{formTemplates.find((template) => template.id === selectedTemplateId)?.title}</p>
-                          <p className="text-xs text-gray-500">{formTemplates.find((template) => template.id === selectedTemplateId)?.type}</p>
+                    <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                    <p className="text-sm text-gray-600 mb-2">
+                      Upload the PDF you want to send for approval. Requesters can edit it before saving.
+                    </p>
+                    <input
+                      id="sourcePdf"
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        if (file && file.type !== 'application/pdf') {
+                          toast.error('Please select a PDF file');
+                          return;
+                        }
+                        setPdfSourceFile(file);
+                        setTemplatePdfFile(null);
+                        setGeneratedPdfUrl('');
+                        setPdfAnnotations([]);
+                        setAttachments([]);
+                        setDraftCreated(false);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById('sourcePdf')?.click()}
+                    >
+                      Select PDF
+                    </Button>
+
+                    {pdfSourceFile && (
+                      <div className="mt-4 space-y-3 text-left">
+                        <div>
+                          <p className="font-medium">{pdfSourceFile.name}</p>
+                          <p className="text-xs text-gray-500">{Math.round(pdfSourceFile.size / 1024)} KB</p>
                         </div>
-                        <div className="mt-4 flex flex-wrap justify-center gap-3">
+                        <div className="flex flex-wrap justify-center gap-3">
                           <Button
                             type="button"
                             variant="secondary"
                             size="sm"
                             onClick={() => setShowPdfEditor(true)}
                           >
-                            Edit template copy
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              if (generatedPdfUrl) {
-                                previewPdf(generatedPdfUrl);
-                              } else if (templatePdfFile) {
-                                previewPdf(URL.createObjectURL(templatePdfFile));
-                              }
-                            }}
-                            disabled={isLoadingPdfPreview}
-                          >
-                            {isLoadingPdfPreview ? 'Loading preview...' : 'Preview template copy'}
+                            Edit PDF
                           </Button>
                         </div>
-                      </>
-                    )} */}
-
-                    {/* {((pdfSourceFile && !selectedTemplateId) || (selectedTemplateId && templatePdfFile)) && (
-                      <div className="mt-4 text-sm text-gray-500">
-                        <p>{(selectedTemplateId ? templatePdfFile?.name : pdfSourceFile?.name) || 'Ready to edit'}</p>
                       </div>
                     )}
                   </div>
-                </div> */}
+                </div>
+              )}
 
                 <Dialog open={showPdfEditor} onOpenChange={setShowPdfEditor}>
                   <DialogContent className="w-full max-w-[90vw] sm:max-w-5xl max-h-[calc(100vh-6rem)] overflow-auto">
@@ -1724,11 +1709,15 @@ export function NewForm() {
                         </ul>
                       </div>
                     )}
+
                     {(pdfSourceFile || templatePdfFile) && (
                       <PdfEditor
                         file={pdfSourceFile || templatePdfFile!}
                         annotations={pdfAnnotations}
-                        onChange={setPdfAnnotations}
+                        onChange={(annotations) => {
+                          setPdfAnnotations(annotations);
+                          setIsPdfSaved(false);
+                        }}
                         onClose={() => setShowPdfEditor(false)}
                         isSaving={isGeneratingPdf}
                         currentUserId={currentUser.id}
@@ -1751,15 +1740,14 @@ export function NewForm() {
                     variant="default"
                     className="mt-4 w-full sm:w-auto px-6"
                     onClick={handleSavePdf}
-                    disabled={isGeneratingPdf}
+                    disabled={isGeneratingPdf || isPdfSaved}
                   >
-                    {isGeneratingPdf ? 'Saving PDF...' : 'Save PDF'}
+                    {isGeneratingPdf ? 'Saving PDF...' : isPdfSaved ? 'Saved' : 'Save PDF'}
                   </Button>
                   <p className="text-xs text-gray-500 mt-3 sm:mt-0">
                     Save the edited PDF before submitting your request.
                   </p>
                 </div>
-              </>
             </CardContent>
           </Card>
 
@@ -1773,15 +1761,14 @@ export function NewForm() {
               }
             }}
           >
-            <DialogContent className="w-full max-w-[90vw] sm:max-w-5xl max-h-[calc(100vh-6rem)] overflow-auto p-0">
+            <DialogContent className="w-full max-w-[95vw] sm:max-w-[95vw] max-h-[calc(100vh-3rem)] overflow-auto p-0">
               <div className="flex h-full flex-col bg-white">
                 <DialogHeader className="px-6 py-4 border-b">
                   <DialogTitle>Preview PDF</DialogTitle>
-                  <DialogDescription>Preview the selected template document in read-only mode.</DialogDescription>
                 </DialogHeader>
                 <div className="flex-1 overflow-auto">
                   {pdfViewerUrl ? (
-                    <iframe src={pdfViewerUrl} title="PDF Preview" className="w-full h-[80vh] border-0" />
+                    <iframe src={pdfViewerUrl} title="PDF Preview" className="w-full h-[88vh] border-0" />
                   ) : (
                     <div className="flex h-full items-center justify-center p-6 text-sm text-gray-500">
                       No PDF available for preview.

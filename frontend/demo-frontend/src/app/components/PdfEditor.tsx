@@ -439,253 +439,271 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
   const clampSize = (value: number, min: number = 0.05, max: number = 0.8) => Math.min(Math.max(value, min), max);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant={mode === 'text' ? 'secondary' : 'outline'} onClick={() => setMode('text')}>
-          Add Text
-        </Button>
-        <Button type="button" variant={mode === 'signature' ? 'secondary' : 'outline'} onClick={() => setMode('signature')}>
-          Add Signature Placeholder
-        </Button>
-        <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+    <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      <div className="space-y-4">
+        <div className="rounded border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">PDF Viewer</p>
+              <p className="text-sm text-gray-500">Click the PDF to place or select annotations.</p>
+            </div>
+            <div className="text-sm text-gray-500">{pageCount} page{pageCount === 1 ? '' : 's'}</div>
+          </div>
+        </div>
+
+        <div className="max-h-[70vh] overflow-y-auto rounded border border-gray-200 bg-white" ref={containerRef}>
+          {Array.from({ length: pageCount }, (_, index) => {
+            const pageNumber = index + 1;
+            const annotationsForPage = annotations.filter((annotation) => annotation.page === pageNumber);
+
+            return (
+              <div key={pageNumber} className="mb-6">
+                <div className="mb-2 flex items-center justify-between gap-3 px-2 text-sm text-gray-600">
+                  <span>Page {pageNumber}</span>
+                  <span>{annotationsForPage.length} annotation{annotationsForPage.length === 1 ? '' : 's'}</span>
+                </div>
+                <div
+                  className="relative overflow-hidden"
+                  data-page={pageNumber}
+                  onClick={handleCanvasClick}
+                >
+                  <canvas
+                    ref={(el) => {
+                      pageRefs.current[index] = el;
+                    }}
+                    className="block w-full"
+                  />
+
+                  {annotationsForPage.map((annotation) => {
+                    const left = `${annotation.xPct * 100}%`;
+                    const top = `${annotation.yPct * 100}%`;
+                    const width = `${annotation.widthPct * 100}%`;
+                    const height = `${annotation.heightPct * 100}%`;
+                    const draggable = isDraggableAnnotation(annotation);
+
+                    return (
+                      <div
+                        key={annotation.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedId(annotation.id);
+                        }}
+                        style={{ left, top, width, height, touchAction: 'none' }}
+                        className={`absolute border-2 ${selectedId === annotation.id ? 'border-blue-500 bg-blue-50/50' : 'border-yellow-500 bg-yellow-50/50'} p-1 text-xs text-gray-900`}
+                      >
+                        {draggable && (
+                          <div
+                            className="absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center text-[10px] leading-none shadow-sm"
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              handleAnnotationPointerDown(e, annotation);
+                            }}
+                            title="Drag to move"
+                          >
+                            ⠿
+                          </div>
+                        )}
+
+                        {selectedId === annotation.id && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeAnnotation(annotation.id);
+                            }}
+                            className="absolute right-1 top-1 z-20 rounded-full bg-white/90 p-1 text-[10px] font-bold text-red-700 shadow-sm hover:bg-red-100"
+                            title="Delete annotation"
+                          >
+                            ×
+                          </button>
+                        )}
+
+                        {selectedId === annotation.id && draggable && (
+                          <div
+                            className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-3 h-3 bg-gray-400 rounded-sm cursor-nw-resize"
+                            onPointerDown={(e) => handleResizePointerDown(e, annotation)}
+                            title="Resize"
+                          />
+                        )}
+
+                        {annotation.type === 'signature' && annotation.signatureData ? (
+                          <img
+                            src={annotation.signatureData}
+                            alt="Signature preview"
+                            className="h-full w-full object-contain"
+                          />
+                        ) : annotation.type === 'text' ? (
+                          <div
+                            contentEditable={draggable}
+                            suppressContentEditableWarning
+                            data-editable-text="true"
+                            style={{
+                              fontSize: `${annotation.fontSizePx || 14}px`
+                            }}
+                            onFocus={(e) => {
+                              const el = e.currentTarget as HTMLElement;
+                              try {
+                                if (el && el.innerText !== annotation.text) el.innerText = annotation.text || '';
+                              } catch {}
+                              setIsEditingText(true);
+                              setJustFinishedEditing(false);
+                            }}
+                            onInput={(e) => {
+                              const newText = e.currentTarget.innerText;
+                              if (newText !== annotation.text) {
+                                updateAnnotation(annotation.id, { text: newText });
+                              }
+                            }}
+                            onBlur={(e) => {
+                              setIsEditingText(false);
+                              setJustFinishedEditing(true);
+                              const newText = e.currentTarget.innerText;
+                              if (newText !== annotation.text) {
+                                updateAnnotation(annotation.id, { text: newText });
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            className="w-full h-full outline-none break-words whitespace-pre-wrap"
+                          >
+                            {(selectedId === annotation.id && isEditingText) ? null : annotation.text}
+                          </div>
+                        ) : (
+                          <div className="truncate">{annotation.text || ''}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="max-h-[65vh] overflow-y-auto rounded border border-gray-200 bg-white" ref={containerRef}>
-        {Array.from({ length: pageCount }, (_, index) => {
-          const pageNumber = index + 1;
-          const annotationsForPage = annotations.filter((annotation) => annotation.page === pageNumber);
+      <aside className="space-y-4">
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant={mode === 'text' ? 'secondary' : 'outline'} onClick={() => setMode('text')}>
+              Add Text
+            </Button>
+            <Button type="button" variant={mode === 'signature' ? 'secondary' : 'outline'} onClick={() => setMode('signature')}>
+              Add Signature Placeholder
+            </Button>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Close
+            </Button>
+          </div>
+        </div>
 
-          return (
-            <div key={pageNumber} className="mb-6">
-              <div className="mb-2 flex items-center justify-between gap-3 px-2 text-sm text-gray-600">
-                <span>Page {pageNumber}</span>
-                <span>{annotationsForPage.length} annotation{annotationsForPage.length === 1 ? '' : 's'}</span>
-              </div>
-              <div
-                className="relative overflow-hidden"
-                data-page={pageNumber}
-                onClick={handleCanvasClick}
-              >
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-4">
+            <p className="text-sm font-semibold text-gray-900">Interactions</p>
+            <p className="text-sm text-gray-500">Select a placeholder on the PDF to edit its details.</p>
+          </div>
 
-              <canvas
-                ref={(el) => {
-                  pageRefs.current[index] = el;
-                }}
-                className="block w-full"
-              />
-
-              {annotationsForPage.map((annotation) => {
-                const left = `${annotation.xPct * 100}%`;
-                const top = `${annotation.yPct * 100}%`;
-                const width = `${annotation.widthPct * 100}%`;
-                const height = `${annotation.heightPct * 100}%`;
-                const draggable = isDraggableAnnotation(annotation);
-
-                return (
-                  <div
-                    key={annotation.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedId(annotation.id);
-                    }}
-                    style={{ left, top, width, height, touchAction: 'none' }}
-                    className={`absolute border-2 ${selectedId === annotation.id ? 'border-blue-500 bg-blue-50/50' : 'border-yellow-500 bg-yellow-50/50'} p-1 text-xs text-gray-900`}
-                  >
-
-                  {draggable && (
-                    <div
-                      className="absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center text-[10px] leading-none shadow-sm"
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        handleAnnotationPointerDown(e, annotation);
-                      }}
-                      title="Drag to move"
-                    >
-                      ⠿
-                    </div>
-                  )}
-
-                  {selectedId === annotation.id && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeAnnotation(annotation.id);
-                      }}
-                      className="absolute right-1 top-1 z-20 rounded-full bg-white/90 p-1 text-[10px] font-bold text-red-700 shadow-sm hover:bg-red-100"
-                      title="Delete annotation"
-                    >
-                      ×
-                    </button>
-                  )}
-
-                  {selectedId === annotation.id && draggable && (
-                    <div
-                      className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-3 h-3 bg-gray-400 rounded-sm cursor-nw-resize"
-                      onPointerDown={(e) => handleResizePointerDown(e, annotation)}
-                      title="Resize"
-                    />
-                  )}
-
-                  {annotation.type === 'signature' && annotation.signatureData ? (
-                    <img
-                      src={annotation.signatureData}
-                      alt="Signature preview"
-                      className="h-full w-full object-contain"
-                    />
-                  ) : annotation.type === 'text' ? (
-                    <div
-                      contentEditable={draggable}
-                      suppressContentEditableWarning
-                      data-editable-text="true"
-                      style={{ 
-                        fontSize: `${annotation.fontSizePx || 14}px`
-                      }}
-                      onFocus={(e) => {
-                        const el = e.currentTarget as HTMLElement;
-                        try {
-                          if (el && el.innerText !== annotation.text) el.innerText = annotation.text || '';
-                        } catch {}
-                        setIsEditingText(true);
-                        setJustFinishedEditing(false);
-                      }}
-                      onInput={(e) => {
-                        const newText = e.currentTarget.innerText;
-                        if (newText !== annotation.text) {
-                          updateAnnotation(annotation.id, { text: newText });
-                        }
-                      }}
-                      onBlur={(e) => {
-                        setIsEditingText(false);
-                        setJustFinishedEditing(true);
-                        const newText = e.currentTarget.innerText;
-                        if (newText !== annotation.text) {
-                          updateAnnotation(annotation.id, { text: newText });
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      className="w-full h-full outline-none break-words whitespace-pre-wrap"
-                    >
-                      {(selectedId === annotation.id && isEditingText) ? null : annotation.text}
-                    </div>
-                  ) : (
-                    <div className="truncate">{annotation.text || ''}</div>
-                  )}
-                  </div>
-                );
-              })}
+          {!selectedId && (
+            <div className="rounded-lg border border-dashed border-gray-200 bg-slate-50 p-4 text-sm text-slate-600">
+              Select an annotation on the left to update text, signature, or approver settings.
             </div>
-          </div>
-        );
-      })}
-    </div>
+          )}
 
-    {selectedId && (
-      <div className="grid gap-3 md:grid-cols-2">
-        {selectedAnnotation?.type === 'text' && (
-          <div>
-            {/* <label className="block text-sm font-medium text-gray-700">Current Text</label>
-            <div className="mt-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
-              {selectedAnnotation.text} 
-            </div> */}
-            <label className="block text-sm font-medium text-gray-700">Double‑click the floating text box on the PDF to edit</label>
-          </div>
-      )}
-
-      {selectedAnnotation?.type === 'signature' && (
-        <div>
-          <div className="space-y-3">
-            <div className="space-y-3">
-              {canAssignApprover ? (
+          {selectedId && (
+            <div className="space-y-4">
+              {selectedAnnotation?.type === 'text' && (
                 <div>
-                  {/* <label className="block text-sm font-medium text-gray-700">Assign approver</label>
-                  <select
-                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2"
-                    value={selectedAnnotation.approverStepId ?? ''}
-                    onChange={(e) => updateAnnotationApprover(selectedAnnotation.id, e.target.value)}
-                  >
-                    <option value="">Unassigned</option>
-                    {approvalSteps.map((step) => (
-                      <option key={step.id} value={step.id}>
-                        {getApproverStepLabel(step)}
-                      </option>
-                    ))}
-                  </select> */}
+                  <label className="block text-sm font-medium text-gray-700">Text placeholder</label>
+                  <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
+                    Double-click the floating text box on the PDF to edit it.
+                  </div>
                 </div>
-              ) : (
-                <p className="text-sm text-slate-600">
-                  Only the requester can assign an approver to this signature placeholder.
-                </p>
               )}
 
-              {selectedAnnotation.approverStepId && (
-                <p className="text-sm text-slate-600">
-                  Assigned approver: <span className="font-medium">{getApproverStepLabel(approvalSteps.find((step) => step.id === selectedAnnotation.approverStepId))}</span>
-                </p>
+              {selectedAnnotation?.type === 'signature' && (
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    {canAssignApprover ? (
+                      <div>
+                        {/* approver assignment UI can be re-enabled here if needed */}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-sm text-slate-600">
+                          Only the requester can assign an approver to this signature placeholder.
+                        </p>
+                        <label className="block text-sm font-medium text-gray-700">Signature note</label>
+                        <input
+                          value={selectedAnnotation.text || ''}
+                          onChange={(e) => updateAnnotation(selectedAnnotation.id, { text: e.target.value })}
+                          className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                          placeholder="Enter a note or label for this signature field"
+                        />
+                        <p className="text-xs text-slate-500">
+                          This text will appear inside the signature placeholder if no signature image is present.
+                        </p>
+                      </div>
+                    )}
+
+                    {selectedAnnotation.approverStepId && (
+                      <p className="text-sm text-slate-600">
+                        Assigned approver: <span className="font-medium">{getApproverStepLabel(approvalSteps.find((step) => step.id === selectedAnnotation.approverStepId))}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <Button type="button" variant="outline"
+                      onClick={() => {
+                        updateAnnotation(selectedAnnotation.id, { signatureData: undefined });
+                        setJustFinishedSignature(false);
+                      }}
+                    >
+                      Draw Signature
+                    </Button>
+                    {currentUserSignatureURL ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => updateAnnotation(selectedAnnotation.id, { signatureData: currentUserSignatureURL })}
+                      >
+                        Use Uploaded Signature
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  <div className="border rounded-lg overflow-hidden">
+                    <canvas
+                      ref={signatureCanvasRef}
+                      width={320}
+                      height={120}
+                      onPointerDown={startSignatureDrawing}
+                      onPointerMove={drawSignature}
+                      onPointerUp={stopSignatureDrawing}
+                      onPointerLeave={stopSignatureDrawing}
+                      onPointerCancel={stopSignatureDrawing}
+                      className="block w-full bg-white cursor-crosshair"
+                    />
+                  </div>
+
+                  <div className="flex gap-2 mt-2">
+                    <Button type="button" variant="outline" onClick={clearSignatureCanvas}>
+                      Clear Signature
+                    </Button>
+                    <Button type="button" onClick={saveSignatureFromCanvas}>
+                      Save Signature
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
-            <div className="flex flex-wrap gap-2 mb-4">
-              <Button type="button" variant="outline" 
-                onClick={() => {
-                  updateAnnotation(selectedAnnotation.id, { signatureData: undefined });
-                  setJustFinishedSignature(false);
-                }}
-              >
-                Draw Signature
-              </Button>
-              {currentUserSignatureURL ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => updateAnnotation(selectedAnnotation.id, { signatureData: currentUserSignatureURL })}
-                >
-                  Use Uploaded Signature
-                </Button>
-              ) : null}
-            </div>
-            <div className="border rounded-lg overflow-hidden">
-              <canvas
-                ref={signatureCanvasRef}
-                width={320}
-                height={120}
-                onPointerDown={startSignatureDrawing}
-                onPointerMove={drawSignature}
-                onPointerUp={stopSignatureDrawing}
-                onPointerLeave={stopSignatureDrawing}
-                onPointerCancel={stopSignatureDrawing}
-                className="block w-full bg-white cursor-crosshair"
-              />
-            </div>
-            <div className="flex gap-2 mt-2">
-              <Button type="button" variant="outline" onClick={clearSignatureCanvas}>
-                Clear Signature
-              </Button>
-              <Button type="button" onClick={saveSignatureFromCanvas}>
-                Save Signature
-              </Button>
-            </div>
-          </div>
+          )}
         </div>
-      )}
-
-        {/* <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium text-gray-700">Actions</label>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => removeAnnotation(selectedId!)}>
-                Delete
-              </Button>
-            </div>
-          </div> */}
-        </div>
-      )}
+      </aside>
 
       {renderError && <p className="text-sm text-red-600">{renderError}</p>}
     </div>
