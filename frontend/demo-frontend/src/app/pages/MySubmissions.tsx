@@ -40,6 +40,8 @@ export function MySubmissions() {
         return 'Approved';
       case 'rejected':
         return 'Rejected';
+      case 'draft':
+        return 'Draft';
       default:
         return 'Pending';
     }
@@ -58,8 +60,9 @@ export function MySubmissions() {
     }
   };
 
+  const currentUserId = String(currentUser.id);
   const myForms = forms
-    .filter(f => f.submittedById === currentUser.id)
+    .filter(f => String(f.submittedById) === currentUserId)
     .filter(f => {
       const matchesSearch = f.title.toLowerCase().includes(search.toLowerCase()) ||
                            f.description.toLowerCase().includes(search.toLowerCase());

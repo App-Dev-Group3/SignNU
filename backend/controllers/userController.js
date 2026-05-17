@@ -10,6 +10,16 @@ const Role = require('../models/role.js');
 const Department = require('../models/department.js');
 const cloudinary = require('cloudinary').v2;
 
+const allowedSignnuEmailPattern = /^(?:[A-Za-z0-9._%+-]+@(?:nu-laguna\.edu\.ph|students\.nu-laguna\.edu\.ph|shs\.students\.nu-laguna\.edu\.ph))$/;
+
+const isAllowedSignnuEmail = (email) => {
+    return allowedSignnuEmailPattern.test((email || '').toLowerCase().trim());
+};
+
+const isValidPassword = (password) => {
+    return /^(?=.*[A-Z])(?=.*\d)[A-Za-z0-9]{8,}$/.test(password);
+};
+
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const EMAIL_FROM = process.env.EMAIL_FROM || 'no-reply@signnu.work';
@@ -345,8 +355,8 @@ const changePassword = async (req, res) => {
     if (!oldPassword || !newPassword) {
         return res.status(400).json({ error: 'oldPassword and newPassword are required' });
     }
-    if (newPassword.length < 8) {
-        return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    if (!isValidPassword(newPassword)) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters, alphanumeric, and include an uppercase letter' });
     }
 
     try {
@@ -379,12 +389,24 @@ const requestPasswordReset = async (req, res) => {
 
     try {
         const normalizedEmail = email.toLowerCase().trim();
+
+        if (!isAllowedSignnuEmail(normalizedEmail)) {
+            return res.status(400).json({
+                error: 'Email must end with @nu-laguna.edu.ph, @students.nu-laguna.edu.ph, or @shs.students.nu-laguna.edu.ph',
+            });
+        }
+
         const user = await User.findOne({ email: normalizedEmail });
 
         if (user) {
+            const code = String(Math.floor(100000 + Math.random() * 900000));
             const token = crypto.randomBytes(32).toString('hex');
+            const expires = Date.now() + 3 * 60 * 1000; // 3 minutes
+
+            user.passwordResetCode = code;
+            user.passwordResetCodeExpires = expires;
             user.passwordResetToken = token;
-            user.passwordResetTokenExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+            user.passwordResetTokenExpires = expires;
             await user.save();
 
             const resetUrl = `${FRONTEND_URL}/reset-password?token=${encodeURIComponent(token)}`;
@@ -394,12 +416,14 @@ const requestPasswordReset = async (req, res) => {
                     to: normalizedEmail,
                     subject: 'SignNU Password Reset',
                     resetUrl,
+                    code,
                 });
                 await resendClient.emails.send({
                     from: EMAIL_FROM,
                     to: normalizedEmail,
                     subject: 'SignNU Password Reset',
-                    html: `<p>We received a request to reset your SignNU password.</p><p><a href="${resetUrl}">Reset your password</a></p><p>If you did not request this, please ignore this email.</p>`,
+                    html: `<p>We received a request to reset your SignNU password.</p><p>Your 6-digit password reset code is <strong>${code}</strong>.</p><p>This code expires in 3 minutes.</p><p>If you did not request this, please ignore this email.</p>`,
+                    text: `Your SignNU password reset code is ${code}. It expires in 3 minutes.`,
                 });
                 console.log('Password reset email send request completed successfully.');
             } else {
@@ -407,7 +431,36 @@ const requestPasswordReset = async (req, res) => {
             }
         }
 
-        res.status(200).json({ message: 'If that email exists, a password reset link has been sent.' });
+        res.status(200).json({ message: 'If that email exists, a password reset code has been sent.' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+const verifyResetCode = async (req, res) => {
+    const { email, code } = req.body;
+    if (!email || !code) {
+        return res.status(400).json({ error: 'Email and reset code are required' });
+    }
+
+    try {
+        const normalizedEmail = email.toLowerCase().trim();
+
+        if (!isAllowedSignnuEmail(normalizedEmail)) {
+            return res.status(400).json({ error: 'Invalid reset request' });
+        }
+
+        const user = await User.findOne({
+            email: normalizedEmail,
+            passwordResetCode: code,
+            passwordResetCodeExpires: { $gt: Date.now() },
+        });
+
+        if (!user) {
+            return res.status(400).json({ error: 'Invalid or expired reset code' });
+        }
+
+        res.status(200).json({ valid: true, message: 'Reset code verified' });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
@@ -476,9 +529,14 @@ const testPasswordResetEmail = async (req, res) => {
             return res.status(404).json({ error: 'No user found for that email address.' });
         }
 
+        const code = String(Math.floor(100000 + Math.random() * 900000));
         const token = crypto.randomBytes(32).toString('hex');
+        const expires = Date.now() + 3 * 60 * 1000; // 3 minutes
+
+        user.passwordResetCode = code;
+        user.passwordResetCodeExpires = expires;
         user.passwordResetToken = token;
-        user.passwordResetTokenExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+        user.passwordResetTokenExpires = expires;
         await user.save();
 
         const resetUrl = `${FRONTEND_URL}/reset-password?token=${encodeURIComponent(token)}`;
@@ -488,14 +546,15 @@ const testPasswordResetEmail = async (req, res) => {
             to: normalizedEmail,
             subject: 'SignNU Test Password Reset',
             resetUrl,
+            code,
         });
 
         const sendResponse = await resendClient.emails.send({
             from: EMAIL_FROM,
             to: normalizedEmail,
             subject: 'SignNU Test Password Reset',
-            html: `<p>This is a test password reset email from SignNU.</p><p><a href="${resetUrl}">Reset your password</a></p>`,
-            text: `Reset your password: ${resetUrl}`,
+            html: `<p>This is a test password reset email from SignNU.</p><p>Your 6-digit test reset code is <strong>${code}</strong>.</p><p>This code expires in 3 minutes.</p><p>If you did not request this, ignore this email.</p>`,
+            text: `Your 6-digit test reset code is ${code}. It expires in 3 minutes.`,
         });
 
         console.log('Test password reset email sent successfully:', sendResponse);
@@ -520,27 +579,44 @@ const testPasswordResetEmail = async (req, res) => {
 };
 
 const resetPassword = async (req, res) => {
-    const { token, newPassword } = req.body;
-    if (!token || !newPassword) {
-        return res.status(400).json({ error: 'token and newPassword are required' });
+    const { token, code, email, newPassword } = req.body;
+    if ((!token && !code) || !newPassword) {
+        return res.status(400).json({ error: 'token or code and newPassword are required' });
     }
-    if (newPassword.length < 8) {
-        return res.status(400).json({ error: 'New password must be at least 8 characters' });
+
+    if (!token && !email) {
+        return res.status(400).json({ error: 'Email is required when using a reset code' });
+    }
+
+    if (!isValidPassword(newPassword)) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters, alphanumeric, and include an uppercase letter' });
     }
 
     try {
-        const user = await User.findOne({
-            passwordResetToken: token,
+        const query = {
             passwordResetTokenExpires: { $gt: Date.now() },
-        });
+        };
+
+        if (token) {
+            query.passwordResetToken = token;
+        } else {
+            const normalizedEmail = email.toLowerCase().trim();
+            query.email = normalizedEmail;
+            query.passwordResetCode = code;
+            query.passwordResetCodeExpires = { $gt: Date.now() };
+        }
+
+        const user = await User.findOne(query);
 
         if (!user) {
-            return res.status(400).json({ error: 'Invalid or expired reset token' });
+            return res.status(400).json({ error: 'Invalid or expired reset token/code' });
         }
 
         user.password = await bcrypt.hash(newPassword, 10);
         user.passwordResetToken = undefined;
         user.passwordResetTokenExpires = undefined;
+        user.passwordResetCode = undefined;
+        user.passwordResetCodeExpires = undefined;
         await user.save();
 
         res.status(200).json({ message: 'Password reset successfully' });
@@ -1113,6 +1189,7 @@ module.exports = {
     logoutUser,
     changePassword,
     requestPasswordReset,
+    verifyResetCode,
     testSendEmail,
     testPasswordResetEmail,
     resetPassword,

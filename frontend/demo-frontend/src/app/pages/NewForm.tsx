@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import { FileText, Upload, X } from 'lucide-react';
 import { PdfEditor, PdfAnnotation } from '../components/PdfEditor';
@@ -84,6 +84,16 @@ export function NewForm() {
   const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
   const [isLoadingPdfPreview, setIsLoadingPdfPreview] = useState(false);
   const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
+  const [offices, setOffices] = useState<Array<{ id: string; name: string; imageUrl?: string }>>([]);
+  const [selectedOfficeId, setSelectedOfficeId] = useState<string>('');
+  const [officeDialogOpen, setOfficeDialogOpen] = useState(false);
+  const [officeName, setOfficeName] = useState('');
+  const [editingOfficeId, setEditingOfficeId] = useState('');
+  const [officeError, setOfficeError] = useState<string | null>(null);
+  const [officeLoadError, setOfficeLoadError] = useState<string | null>(null);
+  const [isSavingOffice, setIsSavingOffice] = useState(false);
+  const [officeImageUrl, setOfficeImageUrl] = useState<string>('');
+  const [officeImageFile, setOfficeImageFile] = useState<File | null>(null);
 
   const normalizeText = (value: string | undefined | null) => {
     if (!value) return '';
@@ -153,11 +163,13 @@ export function NewForm() {
   useEffect(() => {
     const fetchRoles = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/roles`, {
+        const response = await fetch(`${API_BASE_URL}/api/users/roles`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         });
         if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`Unable to load roles: ${response.status} ${errorText}`);
           return;
         }
         const data = await response.json();
@@ -195,6 +207,179 @@ export function NewForm() {
 
     fetchTemplates();
   }, [API_BASE_URL]);
+
+  const fetchOffices = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/offices`, {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(`Failed to load offices: ${response.status} ${message}`);
+      }
+
+      const data = await response.json();
+      if (!Array.isArray(data)) {
+        throw new Error('Unexpected office response format');
+      }
+
+      setOffices(data.map((office: any) => ({ id: office.id || office._id, name: office.name || office, imageUrl: office.imageUrl || '' })));
+      setOfficeLoadError(null);
+    } catch (error: any) {
+      console.error('Unable to load offices:', error);
+      setOfficeLoadError(error?.message || 'Unable to load offices');
+    }
+  };
+
+  useEffect(() => {
+    fetchOffices();
+  }, [API_BASE_URL]);
+
+  useEffect(() => {
+    if (!selectedOfficeId && offices.length > 0) {
+      const firstOffice = offices[0];
+      setSelectedOfficeId(firstOffice.id);
+      setFormData((prev) => ({ ...prev, office: firstOffice.name }));
+      setOfficeImageUrl(firstOffice.imageUrl || '');
+    }
+  }, [offices, selectedOfficeId]);
+
+  const selectOffice = (officeId: string) => {
+    const office = offices.find((item) => item.id === officeId);
+    setSelectedOfficeId(officeId);
+    if (office) {
+      setFormData((prev) => ({ ...prev, office: office.name }));
+      setOfficeImageUrl(office.imageUrl || '');
+    }
+  };
+
+  const openOfficeDialog = (office?: { id: string; name: string; imageUrl?: string | null }) => {
+    setEditingOfficeId(office?.id ?? '');
+    setOfficeName(office?.name ?? '');
+    setOfficeImageUrl(office?.imageUrl ?? '');
+    setOfficeImageFile(null);
+    setOfficeError(null);
+    setOfficeDialogOpen(true);
+  };
+
+  const refreshOffices = async () => {
+    await fetchOffices();
+  };
+
+  const convertFileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Unable to read file')); 
+      }
+    };
+    reader.onerror = () => reject(new Error('Unable to read file'));
+    reader.readAsDataURL(file);
+  });
+
+  const handleOfficeImageChange = async (file: File | null) => {
+    if (!file) {
+      setOfficeImageFile(null);
+      setOfficeImageUrl('');
+      return;
+    }
+
+    const imageUrl = await convertFileToDataUrl(file);
+    setOfficeImageFile(file);
+    setOfficeImageUrl(imageUrl);
+  };
+
+  const handleOfficeSave = async () => {
+    if (!officeName.trim()) {
+      setOfficeError('Office name is required');
+      return;
+    }
+
+    setIsSavingOffice(true);
+    try {
+      const url = editingOfficeId ? `${API_BASE_URL}/api/offices/${editingOfficeId}` : `${API_BASE_URL}/api/offices`;
+      const method = editingOfficeId ? 'PUT' : 'POST';
+      const payload = new FormData();
+      payload.append('name', officeName.trim());
+      const imageIsDataUrl = officeImageUrl?.startsWith('data:');
+      if (officeImageFile) {
+        payload.append('imageFile', officeImageFile);
+      } else if (officeImageUrl && !imageIsDataUrl) {
+        payload.append('imageUrl', officeImageUrl);
+      }
+
+      const response = await fetch(url, {
+        method,
+        credentials: 'include',
+        headers: buildAuthHeaders(),
+        body: payload,
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || `Unable to ${editingOfficeId ? 'update' : 'create'} office`);
+      }
+
+      const savedOffice = { id: data.id, name: data.name, imageUrl: data.imageUrl || '' };
+      setOffices((prev) => {
+        if (editingOfficeId) {
+          return prev.map((office) => (office.id === savedOffice.id ? savedOffice : office));
+        }
+        return [savedOffice, ...prev];
+      });
+      setSelectedOfficeId(savedOffice.id);
+      setFormData((prev) => ({ ...prev, office: savedOffice.name }));
+      setOfficeDialogOpen(false);
+      setEditingOfficeId('');
+      setOfficeName('');
+      setOfficeError(null);
+    } catch (error: any) {
+      console.error('Unable to save office:', error);
+      setOfficeError(error?.message || 'Unable to save office');
+    } finally {
+      setIsSavingOffice(false);
+    }
+  };
+
+  const handleEditOffice = (office: { id: string; name: string; imageUrl?: string | null }) => {
+    openOfficeDialog(office);
+  };
+
+  const handleDeleteOffice = async (officeId: string) => {
+    const confirmed = window.confirm('Delete this office? This action cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/offices/${officeId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || 'Unable to delete office');
+      }
+      setOffices((prev) => prev.filter((office) => office.id !== officeId));
+      if (selectedOfficeId === officeId) {
+        const nextOffice = offices.find((office) => office.id !== officeId);
+        if (nextOffice) {
+          selectOffice(nextOffice.id);
+        } else {
+          setSelectedOfficeId('');
+          setFormData((prev) => {
+            const next = { ...prev };
+            delete next.office;
+            return next;
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Unable to delete office:', error);
+      toast.error('Unable to delete office');
+    }
+  };
 
   const loadTemplatePdfFile = async (template: any) => {
     if (!template?.pdfUrl) return null;
@@ -294,6 +479,14 @@ export function NewForm() {
     ]);
     setGeneratedPdfUrl(template.pdfUrl);
     setPdfAnnotations([]);
+    if (template.officeId) {
+      const matchedOffice = offices.find((office) => office.id === template.officeId);
+      if (matchedOffice) {
+        setSelectedOfficeId(matchedOffice.id);
+        setFormData((prev) => ({ ...prev, office: matchedOffice.name }));
+        setOfficeImageUrl(matchedOffice.imageUrl || '');
+      }
+    }
     await loadTemplatePdfFile(template);
   };
 
@@ -750,6 +943,144 @@ export function NewForm() {
           <h1 className="text-3xl font-semibold text-gray-900 mb-2">Submit New Form</h1>
           <p className="text-gray-600">Fill out the form details and attach required documents</p>
         </div>
+
+        <div className="mb-8">
+<div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold">Choose a request office</h2>
+                <p className="text-sm text-gray-600">Select the office that should own this form. Admins can manage offices.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-40 w-60 overflow-hidden rounded-3xl border border-slate-200 bg-slate-100">
+                  {offices.find((office) => office.id === selectedOfficeId)?.imageUrl ? (
+                    <img
+                      src={offices.find((office) => office.id === selectedOfficeId)?.imageUrl}
+                      alt="Selected office location"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center text-center text-sm text-slate-500 px-2">
+                      No image
+                      <span className="block text-[11px] text-slate-400">add location photo</span>
+                    </div>
+                  )}
+                </div>
+                {currentUser.role === 'Admin' && (
+                  <Button type="button" onClick={() => openOfficeDialog()}>
+                    Add Office
+                  </Button>
+                )}
+              </div>
+            </div>
+
+          {officeLoadError && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {officeLoadError}
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {offices.length > 0 ? (
+              offices.map((office) => {
+                const isSelected = selectedOfficeId === office.id;
+                return (
+                  <div key={office.id} className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => selectOffice(office.id)}
+                      className={`rounded-full border px-4 py-2 text-sm font-medium transition ${isSelected ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'}`}
+                    >
+                      {office.name}
+                    </button>
+                    {currentUser.role === 'Admin' && (
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" type="button" size="sm" onClick={() => handleEditOffice(office)}>
+                          Edit
+                        </Button>
+                        <Button variant="ghost" type="button" size="sm" className="text-red-600" onClick={() => handleDeleteOffice(office.id)}>
+                          Delete
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <p className="text-sm text-gray-500">Loading offices...</p>
+            )}
+          </div>
+
+          {selectedOfficeId && (
+            <p className="mt-2 text-sm text-slate-600">
+              Selected office: {offices.find((office) => office.id === selectedOfficeId)?.name}
+            </p>
+          )}
+        </div>
+
+        <Dialog open={officeDialogOpen} onOpenChange={setOfficeDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingOfficeId ? 'Edit Office' : 'Create Office'}</DialogTitle>
+              <DialogDescription>
+                {editingOfficeId
+                  ? 'Update the office name that requesters can select.'
+                  : 'Add a new office for request routing.'}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <Label htmlFor="officeName">Office Name</Label>
+              <Input
+                id="officeName"
+                value={officeName}
+                onChange={(e) => setOfficeName(e.target.value)}
+                placeholder="e.g. Accounting"
+              />
+              <div className="space-y-2">
+                <Label htmlFor="officeImage">Location Picture</Label>
+                <div className="flex items-center gap-4">
+                  <div className="h-20 w-20 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                    {officeImageUrl ? (
+                      <img src={officeImageUrl} alt="Office location" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-center text-xs text-slate-500 p-2">
+                        No picture
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      id="officeImage"
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        await handleOfficeImageChange(file);
+                      }}
+                    />
+                    <Button type="button" onClick={() => document.getElementById('officeImage')?.click()}>
+                      Upload picture
+                    </Button>
+                    {officeImageUrl && (
+                      <Button type="button" variant="outline" onClick={() => handleOfficeImageChange(null)}>
+                        Remove picture
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {officeError && <div className="text-sm text-red-600">{officeError}</div>}
+            </div>
+            <DialogFooter className="mt-6 gap-2">
+              <Button type="button" variant="outline" onClick={() => setOfficeDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleOfficeSave} disabled={isSavingOffice}>
+                {isSavingOffice ? 'Saving...' : editingOfficeId ? 'Save Changes' : 'Create Office'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <form onSubmit={handleSubmit}>
           <Card>

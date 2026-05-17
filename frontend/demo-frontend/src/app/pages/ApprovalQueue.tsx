@@ -12,16 +12,18 @@ export function ApprovalQueue() {
     return null;
   }
 
-  const hasApprovalAccess = currentUser.role !== 'Student';
+  const currentUserId = String(currentUser.id);
+  const currentUserRole = currentUser.role?.toLowerCase() || '';
+  const canApprove = currentUserRole !== 'student';
 
-  const pendingApprovals = hasApprovalAccess
+  const pendingApprovals = canApprove
     ? forms.filter(f => 
         f.status === 'pending' && 
-        f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
+        f.approvalSteps.some(step => String(step.userId) === currentUserId && step.status === 'pending')
       )
     : [];
 
-  const approvedByMe = hasApprovalAccess
+  const approvedByMe = canApprove
     ? forms.filter(f =>
         f.approvalSteps.some(step => 
           step.userId === currentUser.id && 
@@ -30,7 +32,7 @@ export function ApprovalQueue() {
       )
     : [];
 
-  if (!hasApprovalAccess) {
+  if (!canApprove) {
     return (
       <div className="p-8">
         <div className="max-w-4xl mx-auto text-center py-16">

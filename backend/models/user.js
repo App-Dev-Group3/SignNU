@@ -54,9 +54,9 @@ const userSchema = new Schema({
     trim: true,
     validate: {
       validator: function(value) {
-        return /^(?:[A-Za-z0-9._%+-]+@(?:nu-laguna\.edu\.ph|students\.nu-laguna\.edu\.ph))$/.test(value);
+        return /^(?:[A-Za-z0-9._%+-]+@(?:nu-laguna\.edu\.ph|students\.nu-laguna\.edu\.ph|shs\.students\.nu-laguna\.edu\.ph))$/.test(value);
       },
-      message: 'Email must end with @nu-laguna.edu.ph or @students.nu-laguna.edu.ph'
+      message: 'Email must end with @nu-laguna.edu.ph, @students.nu-laguna.edu.ph, or @shs.students.nu-laguna.edu.ph'
     }
   },
   password: { 
@@ -68,6 +68,8 @@ const userSchema = new Schema({
   },
   passwordResetToken: { type: String },
   passwordResetTokenExpires: { type: Date },
+  passwordResetCode: { type: String },
+  passwordResetCodeExpires: { type: Date },
 
   role: { type: String, default: 'user' },
   roles: { type: [String], default: ['user'] },

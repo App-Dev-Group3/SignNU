@@ -30,10 +30,14 @@ export function AdminTemplates() {
   const { currentUser } = useWorkflow();
   const [users, setUsers] = useState<Array<any>>([]);
   const [templates, setTemplates] = useState<Array<any>>([]);
+  const [offices, setOffices] = useState<Array<{ id: string; name: string }>>([]);
   const [managedRoles, setManagedRoles] = useState<Array<{ id: string; name: string }>>([]);
   const [templateTitle, setTemplateTitle] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
   const [templateType, setTemplateType] = useState<FormType | ''>('');
+  const [templateOfficeId, setTemplateOfficeId] = useState<string>('');
+  const [templateImageUrl, setTemplateImageUrl] = useState<string>('');
+  const [templateImageFile, setTemplateImageFile] = useState<File | null>(null);
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [editingTemplateId, setEditingTemplateId] = useState<string>('');
   const [templateApprovalSteps, setTemplateApprovalSteps] = useState<Array<{ id: string; role: string; department: string; userId: string; userName: string }>>([
@@ -60,7 +64,7 @@ export function AdminTemplates() {
     setError(null);
 
     try {
-      const [usersRes, templatesRes, rolesRes] = await Promise.all([
+      const [usersRes, templatesRes, rolesRes, officesRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/users`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
@@ -70,6 +74,10 @@ export function AdminTemplates() {
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         }),
         fetch(`${API_BASE_URL}/api/roles`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        }),
+        fetch(`${API_BASE_URL}/api/offices`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         }),
@@ -86,9 +94,11 @@ export function AdminTemplates() {
       const usersData = await usersRes.json();
       const templatesData = await templatesRes.json();
       const rolesData = await rolesRes.json();
+      const officesData = await officesRes.json();
       setUsers(usersData);
       setTemplates(Array.isArray(templatesData) ? templatesData : []);
       setManagedRoles(Array.isArray(rolesData) ? rolesData.map((role) => ({ id: role.id || role._id, name: role.name || role })) : []);
+      setOffices(Array.isArray(officesData) ? officesData.map((office) => ({ id: office.id || office._id, name: office.name || office })) : []);
     } catch (err: any) {
       setError(err?.message || 'Unable to load templates.');
     } finally {
@@ -129,8 +139,8 @@ export function AdminTemplates() {
   };
 
   const createTemplate = async () => {
-    if (!templateType || !templateTitle || !templateDescription) {
-      setTemplateError('Template type, title, and description are required.');
+    if (!templateType || !templateTitle || !templateDescription || !templateOfficeId) {
+      setTemplateError('Template type, title, description, and office are required.');
       return;
     }
 
@@ -153,9 +163,16 @@ export function AdminTemplates() {
       if (templateFile) {
         formData.append('pdfFile', templateFile);
       }
+      if (templateImageFile) {
+        formData.append('imageFile', templateImageFile);
+      } else if (templateImageUrl) {
+        formData.append('existingImageUrl', templateImageUrl);
+      }
       formData.append('type', templateType);
       formData.append('title', templateTitle);
       formData.append('description', templateDescription);
+      formData.append('officeId', templateOfficeId);
+      formData.append('officeName', offices.find((office) => office.id === templateOfficeId)?.name || '');
       formData.append('approvalSteps', JSON.stringify(templateApprovalSteps));
 
       const url = editingTemplateId
@@ -188,6 +205,9 @@ export function AdminTemplates() {
       setTemplateTitle('');
       setTemplateDescription('');
       setTemplateType('');
+      setTemplateOfficeId('');
+      setTemplateImageUrl('');
+      setTemplateImageFile(null);
       setTemplateFile(null);
       setTemplateApprovalSteps([{ id: 'step-0', role: '', department: '', userId: '', userName: '' }]);
       setEditingTemplateId('');
@@ -256,6 +276,9 @@ export function AdminTemplates() {
     setTemplateTitle(template.title);
     setTemplateDescription(template.description);
     setTemplateType(template.type);
+    setTemplateOfficeId(template.officeId || '');
+    setTemplateImageUrl(template.imageUrl || '');
+    setTemplateImageFile(null);
     setTemplateApprovalSteps(
       (template.approvalSteps || []).map((step: any) => ({
         id: step.id || `step-${Date.now()}`,
@@ -329,6 +352,66 @@ export function AdminTemplates() {
                   onChange={(e) => setTemplateDescription(e.target.value)}
                   placeholder="Brief summary of what this request is for"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="templateOffice">Template Office</Label>
+                <Select value={templateOfficeId} onValueChange={(value) => setTemplateOfficeId(value)}>
+                  <SelectTrigger id="templateOffice">
+                    <SelectValue placeholder="Select office" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {offices.map((office) => (
+                      <SelectItem key={office.id} value={office.id}>
+                        {office.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="templateImage">Template Image</Label>
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-20 w-20 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                      {templateImageUrl ? (
+                        <img src={templateImageUrl} alt="Template" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs text-slate-500 px-2 text-center">
+                          No image selected
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        id="templateImage"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null;
+                          if (file) {
+                            setTemplateImageFile(file);
+                            setTemplateImageUrl(URL.createObjectURL(file));
+                          }
+                        }}
+                      />
+                      <Button type="button" onClick={() => document.getElementById('templateImage')?.click()}>
+                        Choose image
+                      </Button>
+                      {templateImageUrl && (
+                        <Button type="button" variant="outline" onClick={() => {
+                          setTemplateImageFile(null);
+                          setTemplateImageUrl('');
+                        }}>
+                          Remove image
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-500">Optional image for this template; only admin users can upload or change it.</p>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -418,6 +501,7 @@ export function AdminTemplates() {
                       setTemplateTitle('');
                       setTemplateDescription('');
                       setTemplateType('');
+                      setTemplateOfficeId('');
                       setTemplateFile(null);
                       setTemplateApprovalSteps([{ id: 'step-0', role: '', department: '', userId: '', userName: '' }]);
                       setTemplateError(null);
@@ -445,6 +529,7 @@ export function AdminTemplates() {
                     <tr>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Title</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Type</th>
+                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Office</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Created By</th>
                       <th className="p-3 border-b border-gray-200 text-sm font-semibold">Actions</th>
                     </tr>
@@ -454,6 +539,7 @@ export function AdminTemplates() {
                       <tr key={template.id} className="hover:bg-gray-50">
                         <td className="p-3 border-b border-gray-200">{template.title}</td>
                         <td className="p-3 border-b border-gray-200">{template.type}</td>
+                        <td className="p-3 border-b border-gray-200">{template.officeName || '—'}</td>
                         <td className="p-3 border-b border-gray-200">{template.createdBy || '-'}</td>
                         <td className="p-3 border-b border-gray-200">
                           <div className="flex flex-wrap gap-2">

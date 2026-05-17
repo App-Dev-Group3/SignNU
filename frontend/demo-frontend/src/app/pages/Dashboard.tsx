@@ -15,32 +15,39 @@ export function Dashboard() {
 
   if (!currentUser) return null;
 
-  const mySubmissions = forms.filter(f => f.submittedById === currentUser.id);
-  const myNotifications = notifications.filter(n => n.userId === currentUser.id);
+  const currentUserId = String(currentUser.id);
+  const mySubmissions = forms.filter(f => String(f.submittedById) === currentUserId);
+  const myNotifications = notifications.filter(n => String(n.userId) === currentUserId);
   const unreadCount = myNotifications.filter(n => !n.read).length;
 
-  const hasApprovalAccess = currentUser.role !== 'Student';
+  const currentUserRole = currentUser.role?.toLowerCase() || '';
+  const canApprove = currentUserRole !== 'student';
 
-  const pendingApprovals = hasApprovalAccess
+  const pendingApprovals = canApprove
     ? forms.filter(f =>
         f.status === 'pending' &&
-        f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'pending')
+        f.approvalSteps.some(step => String(step.userId) === currentUserId && step.status === 'pending')
       )
     : [];
 
-  const pendingSubmissions = mySubmissions.filter(f => f.status === 'pending').length;
-  const approvedByMe = forms.filter(f => f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'approved')).length;
-  const rejectedByMe = forms.filter(f => f.approvalSteps.some(step => step.userId === currentUser.id && step.status === 'rejected')).length;
-  const myApproved = mySubmissions.filter(f => f.status === 'approved' || f.status === 'accepted').length;
-  const myRejected = mySubmissions.filter(f => f.status === 'rejected').length;
-  const showRequestStats = mySubmissions.length > 0;
+  const isAcceptedStatus = (status: string) => status === 'accepted' || status === 'approved';
+  const pendingSubmissions = mySubmissions.filter(f => String(f.status) === 'pending').length;
+  const acceptedSubmissions = mySubmissions.filter(f => isAcceptedStatus(f.status)).length;
+  const rejectedSubmissions = mySubmissions.filter(f => f.status === 'rejected').length;
+  const approvedByMe = canApprove
+    ? forms.filter(f => f.approvalSteps.some(step => String(step.userId) === currentUserId && step.status === 'approved')).length
+    : 0;
+  const rejectedByMe = canApprove
+    ? forms.filter(f => f.approvalSteps.some(step => String(step.userId) === currentUserId && step.status === 'rejected')).length
+    : 0;
+  const isRequester = currentUserRole === 'student' || mySubmissions.length > 0;
 
   const stats = [
     { title: 'Total Submissions', value: mySubmissions.length, icon: FileText, color: 'text-[#3B82F6]', bg: 'bg-[#3B82F6]/10' },
     { title: 'Pending Requests', value: pendingSubmissions, icon: Clock, color: 'text-[#F59E0B]', bg: 'bg-[#F59E0B]/10' },
-    { title: 'Pending Approvals', value: pendingApprovals.length, icon: Bell, color: 'text-[#EAB308]', bg: 'bg-[#EAB308]/10' },
-    { title: 'Approved', value: showRequestStats ? myApproved : approvedByMe, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
-    { title: 'Rejected', value: showRequestStats ? myRejected : rejectedByMe, icon: AlertCircle, color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10' },
+    ...(canApprove ? [{ title: 'Pending Approvals', value: pendingApprovals.length, icon: Bell, color: 'text-[#EAB308]', bg: 'bg-[#EAB308]/10' }] : []),
+    { title: isRequester ? 'Accepted' : 'Approved', value: isRequester ? acceptedSubmissions : approvedByMe, icon: CheckCircle, color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10' },
+    { title: 'Rejected', value: isRequester ? rejectedSubmissions : rejectedByMe, icon: AlertCircle, color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10' },
   ];
 
   const visibleForms = forms.filter(form =>
@@ -276,7 +283,8 @@ export function Dashboard() {
             </CardContent>
           </Card>
 
-          {hasApprovalAccess && (
+          {/* APPROVALS */}
+          {canApprove && (
             <Card className="bg-white/80 backdrop-blur-xl border border-[#35408e]/10 shadow-xl rounded-xl">
               <CardHeader>
                 <CardTitle className="text-[#35408e]">Pending Approval</CardTitle>

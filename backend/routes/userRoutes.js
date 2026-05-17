@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const rateLimit = require('express-rate-limit');
+const { default: rateLimit, ipKeyGenerator } = require('express-rate-limit');
 
 const multer = require('multer');
 const storage = multer.memoryStorage();
@@ -15,6 +15,7 @@ const {
     logoutUser,
     changePassword,
     requestPasswordReset,
+    verifyResetCode,
     testSendEmail,
     testPasswordResetEmail,
     resetPassword,
@@ -54,13 +55,50 @@ const authLimiter = rateLimit({
     legacyHeaders: false
 });
 
+const forgotPasswordLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req, res) => {
+        const email = req.body?.email?.toLowerCase().trim();
+        return email || ipKeyGenerator(req, res);
+    },
+    skip: (req) => {
+        const ip = req.ip || '';
+        return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    },
+    message: {
+        error: 'Too many password reset requests. Please try again after 1 hour.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+const verifyResetLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req, res) => {
+        const email = req.body?.email?.toLowerCase().trim();
+        return email || ipKeyGenerator(req, res);
+    },
+    skip: (req) => {
+        const ip = req.ip || '';
+        return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    },
+    message: {
+        error: 'Too many verification attempts. Please try again after 1 hour.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
 // ======================
 // AUTH ROUTES (RATE LIMITED)
 // ======================
 router.post('/login', authLimiter, loginUser);
 router.post('/', authLimiter, createUser);
 router.post('/request-account', authLimiter, createUser);
-router.post('/forgot-password', authLimiter, requestPasswordReset);
+router.post('/forgot-password', authLimiter, forgotPasswordLimiter, requestPasswordReset);
+router.post('/verify-reset-code', verifyResetLimiter, verifyResetCode);
 
 // ======================
 // AUTH / USER SESSION ROUTES
