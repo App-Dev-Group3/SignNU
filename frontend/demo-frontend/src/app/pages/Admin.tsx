@@ -27,7 +27,7 @@ const roles: UserRole[] = [
 export function Admin() {
   const { currentUser } = useWorkflow();
   const [users, setUsers] = useState<Array<any>>([]);
-  const [managedRoles, setManagedRoles] = useState<Array<{ id: string; name: string; officeId?: string }>>([]);
+  const [managedRoles, setManagedRoles] = useState<Array<{ id: string; name: string; officeId?: string; departmentId?: string }>>([]);
   const [managedOffices, setManagedOffices] = useState<Array<{ id: string; name: string }>>([]);
   const [managedDepartments, setManagedDepartments] = useState<Array<{ id: string; name: string }>>([]);
   const [roleName, setRoleName] = useState('');
@@ -36,6 +36,8 @@ export function Admin() {
   const [editingDepartmentId, setEditingDepartmentId] = useState('');
   const [officeRoleName, setOfficeRoleName] = useState('');
   const [officeRoleOfficeId, setOfficeRoleOfficeId] = useState('');
+  const [officeRoleDepartmentId, setOfficeRoleDepartmentId] = useState('');
+  const [officeRoleDepartmentFilter, setOfficeRoleDepartmentFilter] = useState<Record<string, string>>({});
   const [editingOfficeRoleId, setEditingOfficeRoleId] = useState('');
   const [isSavingRole, setIsSavingRole] = useState(false);
   const [isSavingDepartment, setIsSavingDepartment] = useState(false);
@@ -56,6 +58,9 @@ export function Admin() {
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
+
+  const normalizeText = (value: string) => value.trim().toLowerCase();
+  const isFacultyRole = (name: string) => normalizeText(name || '') === 'faculty';
 
   // Memoized fetch function so it can be called on mount and on refresh
   const fetchData = useCallback(async () => {
@@ -100,7 +105,7 @@ export function Admin() {
       const departmentsData = await departmentsRes.json();
       const roleRequestsData = await roleRequestsRes.json();
       setUsers(usersData);
-      setManagedRoles(Array.isArray(rolesData) ? rolesData.map((role) => ({ id: role.id || role._id, name: role.name || role, officeId: role.officeId || '' })) : []);
+      setManagedRoles(Array.isArray(rolesData) ? rolesData.map((role) => ({ id: role.id || role._id, name: role.name || role, officeId: role.officeId || '', departmentId: role.departmentId || '' })) : []);
       setManagedOffices(Array.isArray(officesData) ? officesData.map((office) => ({ id: office.id || office._id, name: office.name || office })) : []);
       setManagedDepartments(Array.isArray(departmentsData) ? departmentsData.map((dept) => ({ id: dept.id || dept._id, name: dept.name || dept })) : []);
       setPendingRoleRequests(Array.isArray(roleRequestsData) ? roleRequestsData : []);
@@ -255,6 +260,13 @@ export function Admin() {
     }
   };
 
+  const isFacultyOffice = (officeId: string) => {
+    const office = managedOffices.find((office) => office.id === officeId);
+    return office?.name.trim().toLowerCase() === 'faculty';
+  };
+
+  const officeRoleNeedsDepartment = isFacultyOffice(officeRoleOfficeId);
+
   const saveOfficeRole = async () => {
     if (!officeRoleName.trim()) {
       setOfficeRoleError('Office role name is required.');
@@ -264,17 +276,22 @@ export function Admin() {
       setOfficeRoleError('Please choose an office.');
       return;
     }
+    if (officeRoleNeedsDepartment && !officeRoleDepartmentId) {
+      setOfficeRoleError('Please choose a department for Faculty roles.');
+      return;
+    }
     setIsSavingRole(true);
     setOfficeRoleError(null);
 
     try {
       const url = editingOfficeRoleId ? `${API_BASE_URL}/api/roles/${editingOfficeRoleId}` : `${API_BASE_URL}/api/roles`;
       const method = editingOfficeRoleId ? 'PUT' : 'POST';
+      const departmentIdToSave = officeRoleNeedsDepartment ? officeRoleDepartmentId || undefined : undefined;
       const response = await fetch(url, {
         method,
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
-        body: JSON.stringify({ name: officeRoleName.trim(), officeId: officeRoleOfficeId }),
+        body: JSON.stringify({ name: officeRoleName.trim(), officeId: officeRoleOfficeId, departmentId: departmentIdToSave }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
@@ -289,6 +306,7 @@ export function Admin() {
       });
       setOfficeRoleName('');
       setOfficeRoleOfficeId('');
+      setOfficeRoleDepartmentId('');
       setEditingOfficeRoleId('');
     } catch (err: any) {
       setOfficeRoleError(err?.message || 'Unable to save office role');
@@ -303,6 +321,7 @@ export function Admin() {
     setEditingOfficeRoleId(role.id);
     setOfficeRoleName(role.name);
     setOfficeRoleOfficeId(role.officeId || '');
+    setOfficeRoleDepartmentId(isFacultyOffice(role.officeId || '') ? (role.departmentId || '') : '');
   };
 
   const saveDepartment = async () => {
@@ -408,13 +427,73 @@ export function Admin() {
     }
   };
 
-  const roleOptions = managedRoles.length > 0 ? managedRoles.map((r) => r.name) : roles;
+  const renderOfficeRoleCard = (office: { id: string; name: string }) => {
+    const officeIsFaculty = isFacultyOffice(office.id);
+    const isFilterable = !office.name.toLowerCase().includes('sdao');
+    const selectedDepartmentFilter = isFilterable ? officeRoleDepartmentFilter[office.id] || '' : '';
+    const officeRoles = officeRolesByOffice[office.id] || [];
+    const filteredRoles = selectedDepartmentFilter
+      ? officeRoles.filter((role) => !officeIsFaculty || role.departmentId === selectedDepartmentFilter)
+      : officeRoles;
+
+    return (
+      <div key={office.id} className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{office.name}</p>
+            <p className="text-xs text-gray-500">Office-specific roles</p>
+          </div>
+          {isFilterable && (
+            <div className="w-full md:w-72">
+              <Label htmlFor={`departmentFilter-${office.id}`}>Filter by department</Label>
+              <select
+                id={`departmentFilter-${office.id}`}
+                value={selectedDepartmentFilter}
+                onChange={(e) => setOfficeRoleDepartmentFilter((prev) => ({ ...prev, [office.id]: e.target.value }))}
+                className="mt-1 w-full border rounded-lg px-3 py-2"
+              >
+                <option value="">All Departments</option>
+                {managedDepartments.map((department) => (
+                  <option key={department.id} value={department.id}>{department.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {filteredRoles.length ? (
+          <div className="space-y-2">
+            {filteredRoles.map((role) => (
+              <div key={role.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-slate-50 p-3">
+                <div>
+                  <p className="text-sm text-gray-900">{role.name}</p>
+                  <p className="text-xs text-gray-500">Department: {officeIsFaculty ? (role.departmentId ? (managedDepartments.find((dept) => dept.id === String(role.departmentId))?.name || 'Unknown') : 'All Departments') : 'N/A'}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" type="button" onClick={() => editOfficeRole(role.id)}>
+                    Edit
+                  </Button>
+                  <Button size="sm" variant="destructive" type="button" onClick={() => deleteRole(role.id)}>
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-600">No roles defined for this office yet.</p>
+        )}
+      </div>
+    );
+  };
+
+  const roleOptions = managedRoles.length > 0 ? Array.from(new Set(managedRoles.map((r) => r.name))) : roles;
   const employeeRoleOptions = roleOptions.filter((role) => role !== 'Student');
   const globalRoles = managedRoles.filter((role) => !role.officeId);
-  const officeRolesByOffice = managedRoles.reduce<Record<string, Array<{ id: string; name: string }>>>((acc, role) => {
+  const officeRolesByOffice = managedRoles.reduce<Record<string, Array<{ id: string; name: string; departmentId?: string }>>>((acc, role) => {
     const officeKey = role.officeId || 'global';
     if (!acc[officeKey]) acc[officeKey] = [];
-    if (role.officeId) acc[officeKey].push({ id: role.id, name: role.name });
+    if (role.officeId) acc[officeKey].push({ id: role.id, name: role.name, departmentId: role.departmentId ? String(role.departmentId) : undefined });
     return acc;
   }, {});
   const departmentOptions = managedDepartments.length > 0 ? managedDepartments.map((d) => d.name) : ['SCS', 'SABM', 'SAS', 'SEA'];
@@ -608,7 +687,13 @@ export function Admin() {
                   <select
                     id="officeSelect"
                     value={officeRoleOfficeId}
-                    onChange={(e) => setOfficeRoleOfficeId(e.target.value)}
+                    onChange={(e) => {
+                      const selectedOfficeId = e.target.value;
+                      setOfficeRoleOfficeId(selectedOfficeId);
+                      if (!isFacultyOffice(selectedOfficeId)) {
+                        setOfficeRoleDepartmentId('');
+                      }
+                    }}
                     className="w-full border rounded-lg px-3 py-2"
                   >
                     <option value="" disabled>Select office</option>
@@ -617,7 +702,22 @@ export function Admin() {
                     ))}
                   </select>
                 </div>
-                <div className="md:col-span-2 space-y-2">
+                <div className="md:col-span-1 space-y-2">
+                  <Label htmlFor="officeRoleDepartment">Department</Label>
+                  <select
+                    id="officeRoleDepartment"
+                    value={officeRoleDepartmentId}
+                    onChange={(e) => setOfficeRoleDepartmentId(e.target.value)}
+                    disabled={!officeRoleNeedsDepartment}
+                    className="w-full border rounded-lg px-3 py-2"
+                  >
+                    <option value="" disabled>{officeRoleNeedsDepartment ? 'Select department' : 'Not required for this office'}</option>
+                    {managedDepartments.map((department) => (
+                      <option key={department.id} value={department.id}>{department.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-1 space-y-2">
                   <Label htmlFor="officeRoleName">Office Role Name</Label>
                   <Input
                     id="officeRoleName"
@@ -656,35 +756,7 @@ export function Admin() {
                 <p className="text-sm text-gray-600">No offices available. Add offices to assign office-specific roles.</p>
               ) : (
                 <div className="space-y-4">
-                  {managedOffices.map((office) => (
-                    <div key={office.id} className="rounded-xl border border-gray-200 bg-white p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900">{office.name}</p>
-                          <p className="text-xs text-gray-500">Office-specific roles</p>
-                        </div>
-                      </div>
-                      {officeRolesByOffice[office.id]?.length ? (
-                        <div className="space-y-2">
-                          {officeRolesByOffice[office.id].map((role) => (
-                            <div key={role.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-slate-50 p-3">
-                              <span className="text-sm text-gray-900">{role.name}</span>
-                              <div className="flex gap-2">
-                                <Button size="sm" type="button" onClick={() => editOfficeRole(role.id)}>
-                                  Edit
-                                </Button>
-                                <Button size="sm" variant="destructive" type="button" onClick={() => deleteRole(role.id)}>
-                                  Delete
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-gray-600">No roles defined for this office yet.</p>
-                      )}
-                    </div>
-                  ))}
+                  {managedOffices.map(renderOfficeRoleCard)}
                 </div>
               )}
             </div>
