@@ -8,11 +8,12 @@ import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { LogIn, Mail, Lock, FileCheck } from 'lucide-react';
 
+const allowedEmailPattern = /^(?:[A-Za-z0-9._%+-]+@(?:nu-laguna\.edu\.ph|students\.nu-laguna\.edu\.ph|shs\.students\.nu-laguna\.edu\.ph))$/;
+
 export function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isForgotLoading, setIsForgotLoading] = useState(false);
 
   const { login } = useWorkflow();
   const navigate = useNavigate();
@@ -43,38 +44,10 @@ export function Login() {
     setIsLoading(false);
   };
 
-  const handleForgotPassword = async () => {
-    if (!email) {
-      toast.error('Please enter your email first');
-      return;
-    }
-
-    setIsForgotLoading(true);
-
-    try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'}/api/users/forgot-password`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ email: email.trim().toLowerCase() }),
-        }
-      );
-
-      if (!res.ok) {
-        toast.error('Failed to send reset email');
-        return;
-      }
-
-      toast.success('Password reset email sent!');
-    } catch (err) {
-      console.error(err);
-      toast.error('Something went wrong');
-    } finally {
-      setIsForgotLoading(false);
-    }
+  const handleForgotPassword = () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const query = normalizedEmail ? `?email=${encodeURIComponent(normalizedEmail)}` : '';
+    navigate(`/reset-password${query}`);
   };
 
   return (
@@ -234,6 +207,15 @@ export function Login() {
                         Sign In
                       </>
                     )}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full h-12 mt-3"
+                    onClick={handleForgotPassword}
+                  >
+                    Forgot password? Reset it here
                   </Button>
 
                 </form>

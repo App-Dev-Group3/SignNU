@@ -7,6 +7,7 @@ import { MySubmissions } from "./pages/MySubmissions";
 import { QRSignature } from "./pages/QRSignature";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
+import { ResetPassword } from "./pages/ResetPassword";
 import { Admin } from "./pages/Admin";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { AdminPendingAccounts } from "./pages/AdminPendingAccounts";
@@ -27,6 +28,10 @@ export const router = createBrowserRouter([
   {
     path: "/register",
     Component: Register,
+  },
+  {
+    path: "/reset-password",
+    Component: ResetPassword,
   },
   {
     path: "/",
