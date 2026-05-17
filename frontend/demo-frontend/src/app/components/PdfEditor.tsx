@@ -54,6 +54,8 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
   const [isEditingText, setIsEditingText] = useState(false);
   const [justFinishedEditing, setJustFinishedEditing] = useState(false);
   const [justFinishedSignature, setJustFinishedSignature] = useState(false);
+  const [anchorsAutoApplied, setAnchorsAutoApplied] = useState(false);
+  const [anchorScanError, setAnchorScanError] = useState<string | null>(null);
   const [resizingId, setResizingId] = useState<string | null>(null);
   const resizeStartRef = useRef<{
     annotationId: string;
@@ -102,6 +104,90 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
       setLoading(false);
     }
   };
+
+  const normalizeAnchorText = (text: string) => text.trim().toLowerCase().replace(/\s+/g, ' ');
+
+  const findApproverStepForAnchor = (anchorRole: string | undefined) => {
+    if (!anchorRole?.trim()) return undefined;
+    const normalizedAnchor = normalizeAnchorText(anchorRole);
+    return approvalSteps.find((step) => {
+      const normalizedRole = normalizeAnchorText(step.role || '');
+      return (
+        normalizedRole.includes(normalizedAnchor) ||
+        normalizedAnchor.includes(normalizedRole) ||
+        normalizedRole === normalizedAnchor
+      );
+    });
+  };
+
+  const anchorTagRegex = /\[\[\s*(?:SIGNATURE|SIGN|SIGN_HERE|SIGN HERE)(?:\s*:\s*([^\]]+))?\s*\]\]/gi;
+
+  const detectAnchorAnnotations = async (pdf: any) => {
+    const newAnnotations: PdfAnnotation[] = [];
+    setAnchorScanError(null);
+
+    try {
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1 });
+        const textContent = await page.getTextContent({ normalizeWhitespace: true });
+
+        textContent.items.forEach((item: any) => {
+          const text = item.str || '';
+          let match: RegExpExecArray | null;
+          anchorTagRegex.lastIndex = 0;
+
+          while ((match = anchorTagRegex.exec(text)) !== null) {
+            const anchorRole = match[1]?.trim();
+            const label = anchorRole ? `${anchorRole} signature` : 'SIGN HERE';
+            const x = item.transform?.[4] ?? 0;
+            const y = item.transform?.[5] ?? 0;
+            const width = item.width || viewport.width * 0.2;
+            const height = Math.max(item.height || 12, 18);
+            const approverStep = findApproverStepForAnchor(anchorRole);
+
+            newAnnotations.push({
+              id: `anchor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              type: 'signature',
+              page: pageNumber,
+              text: label,
+              xPct: clamp(x / viewport.width),
+              yPct: clamp((viewport.height - (y + height)) / viewport.height),
+              widthPct: clamp(width / viewport.width),
+              heightPct: clamp(height / viewport.height),
+              approverStepId: approverStep?.id,
+            });
+          }
+        });
+      }
+    } catch (error: any) {
+      setAnchorScanError(error?.message || 'Unable to scan PDF for anchor tags');
+    }
+
+    return newAnnotations;
+  };
+
+  const applyAnchorAnnotations = async () => {
+    const pdf = pdfRef.current;
+    if (!pdf) return;
+    if (anchorsAutoApplied) return;
+    setAnchorsAutoApplied(true);
+
+    const anchorAnnotations = await detectAnchorAnnotations(pdf);
+    if (anchorAnnotations.length > 0) {
+      onChange([...annotations, ...anchorAnnotations]);
+    }
+  };
+
+  useEffect(() => {
+    if (!pdfRef.current || pageCount <= 0 || anchorsAutoApplied) return;
+    if (annotations.length > 0) {
+      setAnchorsAutoApplied(true);
+      return;
+    }
+
+    applyAnchorAnnotations();
+  }, [pageCount, annotations.length, anchorsAutoApplied]);
 
   useEffect(() => {
     const loadPdf = async () => {
@@ -196,6 +282,13 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
   const selectedAnnotation = annotations.find((annotation) => annotation.id === selectedId) || null;
   const isCurrentUserInChain = currentUserId ? approvalSteps.some((step) => step.userId === currentUserId) : false;
   const canAssignApprover = !isCurrentUserInChain;
+  const selectedApproverStep = selectedAnnotation?.approverStepId
+    ? approvalSteps.find((step) => step.id === selectedAnnotation.approverStepId)
+    : undefined;
+  const canEditSignature =
+    selectedAnnotation?.type !== 'signature' ||
+    !selectedAnnotation?.approverStepId ||
+    selectedApproverStep?.userId === currentUserId;
 
   const getApproverStepLabel = (step: PdfEditorApprovalStep | undefined) => {
     if (!step) return '';
@@ -254,7 +347,7 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
     const canvas = signatureCanvasRef.current;
     if (!canvas || !selectedAnnotation) return;
     const signatureData = canvas.toDataURL('image/png');
-    updateAnnotation(selectedAnnotation.id, { signatureData });
+    updateAnnotation(selectedAnnotation.id, { signatureData, text: '' });
     setJustFinishedSignature(true);
   };
 
@@ -449,6 +542,11 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
             </div>
             <div className="text-sm text-gray-500">{pageCount} page{pageCount === 1 ? '' : 's'}</div>
           </div>
+          {anchorScanError ? (
+            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {anchorScanError}
+            </div>
+          ) : null}
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto rounded border border-gray-200 bg-white" ref={containerRef}>
@@ -481,17 +579,20 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                     const height = `${annotation.heightPct * 100}%`;
                     const draggable = isDraggableAnnotation(annotation);
 
-                    return (
+                    const isSignedPlaceholder = annotation.type === 'signature' && !!annotation.signatureData;
+                  return (
                       <div
                         key={annotation.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedId(annotation.id);
+                          if (!isSignedPlaceholder) {
+                            setSelectedId(annotation.id);
+                          }
                         }}
                         style={{ left, top, width, height, touchAction: 'none' }}
-                        className={`absolute border-2 ${selectedId === annotation.id ? 'border-blue-500 bg-blue-50/50' : 'border-yellow-500 bg-yellow-50/50'} p-1 text-xs text-gray-900`}
+                        className={`absolute border-2 ${isSignedPlaceholder ? 'border-transparent bg-transparent' : selectedId === annotation.id ? 'border-blue-500 bg-blue-50/50' : 'border-yellow-500 bg-yellow-50/50'} p-1 text-xs text-gray-900`}
                       >
-                        {draggable && (
+                        {draggable && !isSignedPlaceholder && (
                           <div
                             className="absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center text-[10px] leading-none shadow-sm"
                             onPointerDown={(e) => {
@@ -504,7 +605,7 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                           </div>
                         )}
 
-                        {selectedId === annotation.id && (
+                        {selectedId === annotation.id && !isSignedPlaceholder && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -518,7 +619,7 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                           </button>
                         )}
 
-                        {selectedId === annotation.id && draggable && (
+                        {selectedId === annotation.id && draggable && !isSignedPlaceholder && (
                           <div
                             className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-3 h-3 bg-gray-400 rounded-sm cursor-nw-resize"
                             onPointerDown={(e) => handleResizePointerDown(e, annotation)}
@@ -595,9 +696,12 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
             <Button type="button" variant={mode === 'signature' ? 'secondary' : 'outline'} onClick={() => setMode('signature')}>
               Add Signature Placeholder
             </Button>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Close
+            <Button type="button" variant="outline" onClick={applyAnchorAnnotations} disabled={anchorsAutoApplied || loading}>
+              {anchorsAutoApplied ? 'Anchor scan applied' : 'Auto-place anchors'}
             </Button>
+            {/* <Button type="button" variant="outline" onClick={onClose}>
+              Close
+            </Button> */}
           </div>
         </div>
 
@@ -627,32 +731,59 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
               {selectedAnnotation?.type === 'signature' && (
                 <div className="space-y-4">
                   <div className="space-y-3">
-                    {canAssignApprover ? (
-                      <div>
-                        {/* approver assignment UI can be re-enabled here if needed */}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <p className="text-sm text-slate-600">
-                          Only the requester can assign an approver to this signature placeholder.
-                        </p>
-                        <label className="block text-sm font-medium text-gray-700">Signature note</label>
-                        <input
-                          value={selectedAnnotation.text || ''}
-                          onChange={(e) => updateAnnotation(selectedAnnotation.id, { text: e.target.value })}
-                          className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                          placeholder="Enter a note or label for this signature field"
-                        />
-                        <p className="text-xs text-slate-500">
-                          This text will appear inside the signature placeholder if no signature image is present.
-                        </p>
-                      </div>
-                    )}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Assign this placeholder</label>
+                      {canAssignApprover ? (
+                        <>
+                          <select
+                            value={selectedAnnotation.approverStepId || ''}
+                            onChange={(e) => updateAnnotationApprover(selectedAnnotation.id, e.target.value)}
+                            className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="">Unassigned</option>
+                            {approvalSteps.map((step) => (
+                              <option key={step.id} value={step.id}>
+                                {getApproverStepLabel(step)}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-slate-500">
+                            Assign the signature anchor to a specific approval step so the assigned approver can sign it.
+                          </p>
+                        </>
+                      ) : (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                          {selectedAnnotation.approverStepId ? (
+                            <>Only the assigned approver can sign this placeholder.</>
+                          ) : (
+                            <>You cannot assign this placeholder while signed approval is in progress.</>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Signature note</label>
+                      <input
+                        value={selectedAnnotation.text || ''}
+                        onChange={(e) => updateAnnotation(selectedAnnotation.id, { text: e.target.value })}
+                        className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                        placeholder="Enter a note or label for this signature field"
+                      />
+                      <p className="text-xs text-slate-500">
+                        This text appears in the placeholder when no signature image is present.
+                      </p>
+                    </div>
 
                     {selectedAnnotation.approverStepId && (
                       <p className="text-sm text-slate-600">
-                        Assigned approver: <span className="font-medium">{getApproverStepLabel(approvalSteps.find((step) => step.id === selectedAnnotation.approverStepId))}</span>
+                        Assigned approver: <span className="font-medium">{getApproverStepLabel(selectedApproverStep)}</span>
                       </p>
+                    )}
+                    {!canEditSignature && selectedAnnotation.approverStepId && (
+                      <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700">
+                        This placeholder is assigned to {getApproverStepLabel(selectedApproverStep)}. Only that approver can apply their signature here.
+                      </div>
                     )}
                   </div>
 
@@ -662,6 +793,7 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                         updateAnnotation(selectedAnnotation.id, { signatureData: undefined });
                         setJustFinishedSignature(false);
                       }}
+                      disabled={!canEditSignature}
                     >
                       Draw Signature
                     </Button>
@@ -669,9 +801,19 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                       <Button
                         type="button"
                         variant="secondary"
-                        onClick={() => updateAnnotation(selectedAnnotation.id, { signatureData: currentUserSignatureURL })}
+                        onClick={() => updateAnnotation(selectedAnnotation.id, { signatureData: currentUserSignatureURL, text: '' })}
+                        disabled={!canEditSignature}
                       >
                         Use Uploaded Signature
+                      </Button>
+                    ) : null}
+                    {canEditSignature && currentUserSignatureURL && selectedAnnotation.approverStepId && selectedApproverStep?.userId === currentUserId ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => updateAnnotation(selectedAnnotation.id, { signatureData: currentUserSignatureURL, text: '' })}
+                      >
+                        Sign Assigned Placeholder
                       </Button>
                     ) : null}
                   </div>
@@ -691,10 +833,10 @@ export function PdfEditor({ file, annotations, onChange, onClose, isSaving, curr
                   </div>
 
                   <div className="flex gap-2 mt-2">
-                    <Button type="button" variant="outline" onClick={clearSignatureCanvas}>
+                    <Button type="button" variant="outline" onClick={clearSignatureCanvas} disabled={!canEditSignature}>
                       Clear Signature
                     </Button>
-                    <Button type="button" onClick={saveSignatureFromCanvas}>
+                    <Button type="button" onClick={saveSignatureFromCanvas} disabled={!canEditSignature}>
                       Save Signature
                     </Button>
                   </div>

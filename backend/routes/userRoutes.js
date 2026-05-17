@@ -34,6 +34,7 @@ const {
     getApproverUsers,
     getAvailableRoles,
     getAvailableDepartments,
+    getAvailableOrganizations,
 } = require('../controllers/userController.js');
 
 const authMiddleware = require('../middleware/authMiddleware.js');
@@ -69,6 +70,21 @@ const forgotPasswordLimiter = rateLimit({
     },
     message: {
         error: 'Too many password reset requests. Please try again after 1 hour.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+const roleRequestLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req, res) => req.user?.id || req.ip || ipKeyGenerator(req, res),
+    skip: (req) => {
+        const ip = req.ip || '';
+        return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    },
+    message: {
+        error: 'Too many role requests. Please try again after an hour.'
     },
     standardHeaders: true,
     legacyHeaders: false
@@ -112,6 +128,7 @@ router.get('/me', authMiddleware, getCurrentUser);
 router.get('/approvers', authMiddleware, getApproverUsers);
 router.get('/roles', authMiddleware, getAvailableRoles);
 router.get('/departments', authMiddleware, getAvailableDepartments);
+router.get('/organizations', authMiddleware, getAvailableOrganizations);
 router.post('/logout', authMiddleware, logoutUser);
 
 // ======================
@@ -158,7 +175,7 @@ router.post('/:id/notifications', authMiddleware, addUserNotification);
 router.patch('/:id/notifications/:notificationId', authMiddleware, updateUserNotification);
 router.delete('/:id/notifications/:notificationId', authMiddleware, deleteUserNotification);
 
-router.post('/:id/role-requests', authMiddleware, createRoleRequest);
+router.post('/:id/role-requests', authMiddleware, roleRequestLimiter, createRoleRequest);
 router.get('/:id/role-requests', authMiddleware, getUserRoleRequests);
 
 // ======================

@@ -8,6 +8,7 @@ const AccountRequest = require('../models/accountRequest.js');
 const { validateAccountRequest } = require('../models/accountRequest.js');
 const Role = require('../models/role.js');
 const Department = require('../models/department.js');
+const Organization = require('../models/organization.js');
 const cloudinary = require('cloudinary').v2;
 
 const allowedSignnuEmailPattern = /^(?:[A-Za-z0-9._%+-]+@(?:nu-laguna\.edu\.ph|students\.nu-laguna\.edu\.ph|shs\.students\.nu-laguna\.edu\.ph))$/;
@@ -789,7 +790,7 @@ const updateUser = async (req, res) => {
             delete payload.oldPassword;
         }
 
-        const user = await User.findByIdAndUpdate(id, payload, { new: true, runValidators: true }).select('-password');
+        const user = await User.findByIdAndUpdate(id, payload, { returnDocument: 'after', runValidators: true }).select('-password');
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
@@ -820,6 +821,15 @@ const createRoleRequest = async (req, res) => {
         const normalizedRole = role.toString().trim();
         if (Array.isArray(targetUser.roles) && targetUser.roles.some((existingRole) => existingRole.toLowerCase() === normalizedRole.toLowerCase())) {
             return res.status(400).json({ error: 'User already has this role' });
+        }
+
+        const duplicateRequest = Array.isArray(targetUser.pendingRoleRequests) && targetUser.pendingRoleRequests.find((existingRequest) =>
+            existingRequest.role.toLowerCase() === normalizedRole.toLowerCase() &&
+            existingRequest.status !== 'rejected'
+        );
+
+        if (duplicateRequest) {
+            return res.status(400).json({ error: 'A request for this role is already active' });
         }
 
         const requestId = crypto.randomUUID();
@@ -1246,6 +1256,15 @@ const getAvailableDepartments = async (_req, res) => {
     }
 };
 
+const getAvailableOrganizations = async (_req, res) => {
+    try {
+        const organizations = await Organization.find({}).sort({ name: 1 });
+        res.status(200).json(organizations.map((org) => ({ id: org._id, name: org.name })));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     getAllUsers,
     getUserById,
@@ -1277,4 +1296,5 @@ module.exports = {
     getApproverUsers,
     getAvailableRoles,
     getAvailableDepartments,
+    getAvailableOrganizations,
 };

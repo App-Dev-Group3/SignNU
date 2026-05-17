@@ -107,6 +107,7 @@ export interface FormSubmission {
   approvalSteps: ApprovalStep[];
   signatures: Signature[];
   signatureMarkers: SignatureMarker[];
+  annotations?: Array<Record<string, any>>;
   generatedPdfURL?: string;
   currentStep: number;
   lastNudgedAt?: string;
@@ -278,6 +279,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           email: data.user.email,
           department: data.user.department,
           organization: data.user.organization,
+          signatureURL: data.user.signatureURL ?? data.user.signatureUrl,
         });
         setIsAuthenticated(true);
       } catch {

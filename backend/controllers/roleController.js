@@ -162,7 +162,7 @@ const updateRole = async (req, res) => {
         organizationId: normalizedOrganizationId,
         departmentId: departmentIdToSave,
       },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
     if (!role) {
       return res.status(404).json({ error: 'Role not found' });

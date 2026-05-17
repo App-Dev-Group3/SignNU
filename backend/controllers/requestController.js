@@ -53,7 +53,7 @@ const deleteApproval = async (req, res) => {
 const updateApproval = async (req, res) => {
     const { id } = req.params;
     try {
-        const approval = await Approval.findByIdAndUpdate(id, { ...req.body }, { new: true });
+        const approval = await Approval.findByIdAndUpdate(id, { ...req.body }, { returnDocument: 'after' });
         if (!approval) {
             return res.status(404).json({ error: 'Approval not found' });
         }

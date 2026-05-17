@@ -10,6 +10,8 @@ export function AccountSettings() {
   const [requestedRole, setRequestedRole] = useState("");
   type RoleRequestOption = { value: string; label: string; departmentId?: string | null; departmentName?: string | null };
   const [availableRoles, setAvailableRoles] = useState<RoleRequestOption[]>([]);
+  const [availableOrganizations, setAvailableOrganizations] = useState<Array<{ value: string; label: string }>>([]);
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('');
   const [pendingRoleRequests, setPendingRoleRequests] = useState<Array<{ requestId: string; role: string; status: string; requestedAt: string }>>([]);
   const [profileLoading, setProfileLoading] = useState(false);
   const [requestLoading, setRequestLoading] = useState(false);
@@ -73,6 +75,7 @@ export function AccountSettings() {
               value: label,
               label,
               departmentId: item.departmentId || null,
+              departmentName: item.departmentName || null,
             });
           });
         } else if (Array.isArray(data)) {
@@ -87,6 +90,30 @@ export function AccountSettings() {
         setAvailableRoles(roleOptions);
       } catch (err) {
         console.warn('Failed to load available roles', err);
+      }
+    };
+
+    const fetchOrganizationData = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/users/organizations`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        });
+        if (!res.ok) {
+          return;
+        }
+
+        const orgs = await res.json();
+        if (Array.isArray(orgs)) {
+          const orgOptions = orgs.map((org: any) => ({ value: org.name || '', label: org.name || '' }))
+            .filter((item) => item.value);
+          if (currentUser.organization && currentUser.organization.trim() && !orgOptions.some((item) => item.value === currentUser.organization.trim())) {
+            orgOptions.unshift({ value: currentUser.organization.trim(), label: currentUser.organization.trim() });
+          }
+          setAvailableOrganizations(orgOptions);
+        }
+      } catch (err) {
+        console.warn('Failed to load available organizations', err);
       }
     };
 
@@ -113,8 +140,21 @@ export function AccountSettings() {
     };
 
     fetchRoleData();
+    fetchOrganizationData();
     fetchPendingRequests();
   }, [currentUser]);
+
+  const departmentOptions = Array.from(
+    new Map(
+      availableRoles
+        .filter((role) => role.departmentName)
+        .map((role) => [role.departmentName, { value: role.departmentName!, label: role.departmentName! }])
+    ).values()
+  );
+
+  const filteredRoleOptions = selectedDepartment
+    ? availableRoles.filter((role) => role.departmentName === selectedDepartment)
+    : availableRoles;
 
   const buildAuthHeaders = (): Record<string, string> => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
@@ -231,19 +271,46 @@ export function AccountSettings() {
       <form onSubmit={handleSaveProfile} style={{ marginBottom: "30px" }}>
         <div style={{ marginBottom: "15px" }}>
           <label>Organization</label>
-          <input
-            type="text"
-            value={organization}
-            onChange={(e) => setOrganization(e.target.value)}
-            placeholder="Student Council, club, or organization"
-            style={{
-              width: "100%",
-              padding: "10px",
-              marginTop: "5px",
-              borderRadius: "6px",
-              border: "1px solid #ccc",
-            }}
-          />
+          {availableOrganizations.length > 0 ? (
+            <select
+              value={organization}
+              onChange={(e) => {
+                setOrganization(e.target.value);
+                if (e.target.value !== 'Student Council') {
+                  setSelectedDepartment('');
+                }
+              }}
+              style={{
+                width: "100%",
+                padding: "10px",
+                marginTop: "5px",
+                borderRadius: "6px",
+                border: "1px solid #ccc",
+                background: "white",
+              }}
+            >
+              <option value="">Select an organization</option>
+              {availableOrganizations.map((orgOption) => (
+                <option key={orgOption.value} value={orgOption.value}>
+                  {orgOption.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={organization}
+              onChange={(e) => setOrganization(e.target.value)}
+              placeholder="Student Council, club, or organization"
+              style={{
+                width: "100%",
+                padding: "10px",
+                marginTop: "5px",
+                borderRadius: "6px",
+                border: "1px solid #ccc",
+              }}
+            />
+          )}
         </div>
 
         <div style={{ marginBottom: "15px" }}>
@@ -293,25 +360,78 @@ export function AccountSettings() {
         <h3 style={{ marginBottom: "12px" }}>Request Additional Role</h3>
         <div style={{ marginBottom: "15px" }}>
           <label>Choose a role to request</label>
-          <select
-            value={requestedRole}
-            onChange={(e) => setRequestedRole(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "10px",
-              marginTop: "5px",
-              borderRadius: "6px",
-              border: "1px solid #ccc",
-              background: "white",
-            }}
-          >
-            <option value="">Select a role</option>
-            {availableRoles.map((roleOption) => (
-              <option key={roleOption.value} value={roleOption.value}>
-                {roleOption.label}
-              </option>
-            ))}
-          </select>
+          {organization === 'Student Council' && departmentOptions.length > 0 ? (
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <div>
+                <select
+                  value={selectedDepartment}
+                  onChange={(e) => {
+                    setSelectedDepartment(e.target.value);
+                    setRequestedRole('');
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    marginTop: "5px",
+                    borderRadius: "6px",
+                    border: "1px solid #ccc",
+                    background: "white",
+                  }}
+                >
+                  <option value="">Select a department</option>
+                  {departmentOptions.map((deptOption) => (
+                    <option key={deptOption.value} value={deptOption.value}>
+                      {deptOption.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <select
+                  value={requestedRole}
+                  onChange={(e) => setRequestedRole(e.target.value)}
+                  disabled={!selectedDepartment}
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    marginTop: "5px",
+                    borderRadius: "6px",
+                    border: "1px solid #ccc",
+                    background: "white",
+                  }}
+                >
+                  <option value="">
+                    {selectedDepartment ? 'Select a role' : 'Choose a department first'}
+                  </option>
+                  {filteredRoleOptions.map((roleOption) => (
+                    <option key={roleOption.value} value={roleOption.value}>
+                      {roleOption.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : (
+            <select
+              value={requestedRole}
+              onChange={(e) => setRequestedRole(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px",
+                marginTop: "5px",
+                borderRadius: "6px",
+                border: "1px solid #ccc",
+                background: "white",
+              }}
+            >
+              <option value="">Select a role</option>
+              {availableRoles.map((roleOption) => (
+                <option key={roleOption.value} value={roleOption.value}>
+                  {roleOption.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <button
           type="submit"

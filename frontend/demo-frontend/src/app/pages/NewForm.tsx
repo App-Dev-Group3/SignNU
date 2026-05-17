@@ -663,6 +663,7 @@ export function NewForm() {
         submittedById: currentUser.id,
         formData,
         attachments: [],
+        annotations: pdfAnnotations,
         approvalSteps: approvalSteps.map((step, index) => ({
           id: `step-${Date.now()}-${index}`,
           role: step.role,
@@ -700,9 +701,15 @@ export function NewForm() {
         throw new Error('Received invalid PDF URL from server');
       }
       setGeneratedPdfUrl(pdfUrl);
-      setAttachments([
-        { name: sourcePdf.name, size: sourcePdf.size, type: sourcePdf.type, url: pdfUrl },
-      ]);
+      const savedAttachment = { name: sourcePdf.name, size: sourcePdf.size, type: sourcePdf.type, url: pdfUrl };
+      setAttachments([savedAttachment]);
+      if (draftCreated) {
+        await updateForm(formIdRef.current, {
+          generatedPdfURL: pdfUrl,
+          attachments: [savedAttachment],
+          annotations: pdfAnnotations,
+        });
+      }
       setIsPdfSaved(true);
       toast.success('PDF saved successfully');
     } catch (error: any) {
@@ -837,6 +844,7 @@ if (formType === 'ACP' && !isCustomApprovalChain && !formData.adviserSigned) {
         status: 'pending' as const,
       })),
       signatures: requesterSignatureEntry,
+      annotations: pdfAnnotations,
       status: pdfSourceFile ? ('draft' as FormStatus) : ('pending' as FormStatus),
     };
 
@@ -853,6 +861,7 @@ if (formType === 'ACP' && !isCustomApprovalChain && !formData.adviserSigned) {
           description,
           type: formType,
           formData,
+          annotations: pdfAnnotations,
           approvalSteps: approvalSteps.map((step, index) => ({
             id: step.id ?? `step-${Date.now()}-${index}`,
             role: step.role,

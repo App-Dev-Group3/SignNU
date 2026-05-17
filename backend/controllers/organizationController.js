@@ -44,7 +44,7 @@ const updateOrganization = async (req, res) => {
     const organization = await Organization.findByIdAndUpdate(
       id,
       { name: name.trim() },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
 
     if (!organization) {

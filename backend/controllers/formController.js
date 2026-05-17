@@ -304,6 +304,10 @@ const updateForm = async (req, res) => {
       return res.status(404).json({ error: 'Form not found' });
     }
 
+    if (['accepted', 'approved'].includes(existingForm.status)) {
+      return res.status(403).json({ error: 'Finalized requests cannot be edited.' });
+    }
+
     if (
       existingForm.status === 'draft' &&
       req.body.status === 'pending' &&
@@ -312,7 +316,7 @@ const updateForm = async (req, res) => {
       return res.status(403).json({ error: 'Only the requester can submit this draft.' });
     }
 
-    const form = await Form.findOneAndUpdate({ id }, { ...req.body }, { new: true, runValidators: true });
+    const form = await Form.findOneAndUpdate({ id }, { ...req.body }, { returnDocument: 'after', runValidators: true });
     emitFormToUsers(req, form, 'form:updated');
     res.status(200).json(form);
   } catch (error) {
@@ -502,7 +506,7 @@ const generatePdf = async (req, res) => {
       { id },
       updateOps,
       {
-        new: true,
+        returnDocument: 'after',
         arrayFilters: attachmentId ? [{ 'att.id': attachmentId }] : undefined,
       }
     );

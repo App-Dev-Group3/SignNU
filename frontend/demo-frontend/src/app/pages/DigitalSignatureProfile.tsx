@@ -281,6 +281,10 @@ function DigitalSignatureProfile() {
             }
 
             setCurrentUserSignature('');
+            setHasSignature(false);
+            setHasFile(false);
+            setSignatureDataURL(null);
+            setUploadedFile(null);
             alert('Saved signature cleared. You can now upload a new one.');
         } catch (error) {
             console.error('Clear signature failed:', error);

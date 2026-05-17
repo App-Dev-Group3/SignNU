@@ -194,11 +194,12 @@ export function FormDetails() {
   );
   const hasApprovalAccess = currentUser.role !== 'Student';
   const canApprove = hasApprovalAccess && currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
-  const canAddSignature = hasApprovalAccess && form.approvalSteps.some(
+  const isFinalized = ['accepted', 'approved'].includes(form.status as string);
+  const canAddSignature = hasApprovalAccess && !isFinalized && form.approvalSteps.some(
     step => step.userId === currentUser.id && step.status !== 'pending'
   );
-  const isCurrentSigner = hasApprovalAccess && currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
-  const canOpenSignatureDialog = canAddSignature || isCurrentSigner;
+  const isCurrentSigner = hasApprovalAccess && !isFinalized && currentStep?.userId === currentUser.id && currentStep?.status === 'pending';
+  const canOpenSignatureDialog = (canAddSignature || isCurrentSigner) && !isFinalized;
   const canEditDraft = currentUser.id === form.submittedById && form.status === 'draft';
   const canEditApprovalChain = canEditDraft;
   const canSubmitDraft = form.status === 'draft' && form.submittedById === currentUser.id;
@@ -319,6 +320,10 @@ export function FormDetails() {
   };
 
   const openPdfEditorForAttachment = async (att: { id?: string; name: string; url?: string }) => {
+    if (['accepted', 'approved'].includes(form.status as string)) {
+      toast.error('This request is finalized and cannot be edited');
+      return;
+    }
     if (!att.url || !isValidUrl(att.url)) {
       toast.error('Cannot edit PDF: attachment has no valid URL');
       return;
@@ -327,7 +332,7 @@ export function FormDetails() {
     try {
       const file = await fetchPdfFileFromUrl(att.url, att.name);
       setPdfEditorFile(file);
-      setPdfEditorAnnotations([]);
+      setPdfEditorAnnotations(form.annotations ?? []);
       setEditingAttachmentId(att.id ?? null);
       setIsPdfEditorOpen(true);
     } catch (error: any) {
@@ -370,6 +375,7 @@ export function FormDetails() {
         attachments: form.attachments.map((att) =>
           att.id === editingAttachmentId ? { ...att, url: generatedPdfUrl } : att
         ),
+        annotations: pdfEditorAnnotations,
       });
 
       toast.success('Signature placement saved to PDF');

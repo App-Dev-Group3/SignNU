@@ -91,7 +91,7 @@ const updateOffice = async (req, res) => {
       updatePayload.imageUrl = finalImageUrl || null;
     }
 
-    const office = await Office.findByIdAndUpdate(id, updatePayload, { new: true, runValidators: true });
+    const office = await Office.findByIdAndUpdate(id, updatePayload, { returnDocument: 'after', runValidators: true });
     if (!office) {
       return res.status(404).json({ error: 'Office not found' });
     }

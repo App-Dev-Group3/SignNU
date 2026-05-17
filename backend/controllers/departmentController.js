@@ -41,7 +41,7 @@ const updateDepartment = async (req, res) => {
       return res.status(409).json({ error: 'Another department with this name already exists' });
     }
 
-    const department = await Department.findByIdAndUpdate(id, { name: name.trim() }, { new: true, runValidators: true });
+    const department = await Department.findByIdAndUpdate(id, { name: name.trim() }, { returnDocument: 'after', runValidators: true });
     if (!department) {
       return res.status(404).json({ error: 'Department not found' });
     }
