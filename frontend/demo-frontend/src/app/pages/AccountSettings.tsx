@@ -1,4 +1,5 @@
 ﻿import { FormEvent, useEffect, useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { useWorkflow } from "../context/WorkflowContext";
 
@@ -7,36 +8,83 @@ export function AccountSettings() {
   const [organization, setOrganization] = useState("");
   const [rolesDisplay, setRolesDisplay] = useState("");
   const [requestedRole, setRequestedRole] = useState("");
-  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  type RoleRequestOption = { value: string; label: string; departmentId?: string | null; departmentName?: string | null };
+  const [availableRoles, setAvailableRoles] = useState<RoleRequestOption[]>([]);
   const [pendingRoleRequests, setPendingRoleRequests] = useState<Array<{ requestId: string; role: string; status: string; requestedAt: string }>>([]);
-  const [oldPassword, setOldPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [profileLoading, setProfileLoading] = useState(false);
   const [requestLoading, setRequestLoading] = useState(false);
-  const [passwordLoading, setPasswordLoading] = useState(false);
-  const [passwordResetLoading, setPasswordResetLoading] = useState(false);
 
   const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
   const AUTH_TOKEN_KEY = 'signnu_auth_token';
+
+  const formatRoleLabel = (role: string, department?: string) => {
+    const normalizedRole = role.trim();
+    if (normalizedRole === 'Dean' && department?.trim()) {
+      return `${normalizedRole} (${department.trim()})`;
+    }
+    return normalizedRole;
+  };
 
   useEffect(() => {
     if (!currentUser) return;
 
     setOrganization(currentUser.organization || '');
     setRolesDisplay((currentUser.roles && currentUser.roles.length > 0)
-      ? currentUser.roles.join(', ')
-      : currentUser.role || '');
+      ? currentUser.roles.map((role) => formatRoleLabel(role, currentUser.department)).join(', ')
+      : formatRoleLabel(currentUser.role || '', currentUser.department));
 
     const fetchRoleData = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/users/roles`, {
+        const res = await fetch(`${API_BASE_URL}/api/users/roles?detail=true`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         });
-        if (res.ok) {
-          const data = await res.json();
-          setAvailableRoles(Array.isArray(data) ? data.filter((role) => typeof role === 'string') : []);
+        if (!res.ok) {
+          return;
         }
+
+        const data = await res.json();
+        const roleOptions: Array<{ value: string; label: string; departmentId?: string | null }> = [];
+
+        if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object' && data[0] !== null && 'name' in data[0]) {
+          const departmentRes = await fetch(`${API_BASE_URL}/api/users/departments`, {
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+          });
+          const departmentLookup: Record<string, string> = {};
+          if (departmentRes.ok) {
+            const departments = await departmentRes.json();
+            if (Array.isArray(departments)) {
+              departments.forEach((dept: any) => {
+                if (dept?.id && dept?.name) {
+                  departmentLookup[dept.id] = dept.name;
+                }
+              });
+            }
+          }
+
+          (data as any[]).forEach((item) => {
+            if (!item?.name) return;
+            const roleName = String(item.name).trim();
+            const label = item.departmentName
+              ? `${roleName} (${item.departmentName.trim()})`
+              : roleName;
+            roleOptions.push({
+              value: label,
+              label,
+              departmentId: item.departmentId || null,
+            });
+          });
+        } else if (Array.isArray(data)) {
+          data.forEach((role) => {
+            if (typeof role !== 'string') return;
+            const roleName = role.trim();
+            if (!roleName) return;
+            roleOptions.push({ value: roleName, label: roleName });
+          });
+        }
+
+        setAvailableRoles(roleOptions);
       } catch (err) {
         console.warn('Failed to load available roles', err);
       }
@@ -167,55 +215,6 @@ export function AccountSettings() {
     }
   };
 
-  const handleChangePassword = async (e: FormEvent) => {
-    e.preventDefault();
-
-    if (!oldPassword || !newPassword) {
-      toast.error("Please fill in all fields");
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      toast.error("New password must be at least 6 characters");
-      return;
-    }
-
-    setPasswordLoading(true);
-
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/users/change-password`,
-        {
-          method: "POST",
-          credentials: 'include',
-          headers: {
-            "Content-Type": "application/json",
-            ...buildAuthHeaders(),
-          },
-          body: JSON.stringify({
-            oldPassword,
-            newPassword,
-          }),
-        }
-      );
-
-      const data = await response.json();
-      if (!response.ok) {
-        toast.error(data.message || "Failed to change password");
-        return;
-      }
-
-      toast.success("Password changed successfully!");
-      setOldPassword("");
-      setNewPassword("");
-    } catch (err) {
-      console.error(err);
-      toast.error("Something went wrong. Please try again.");
-    } finally {
-      setPasswordLoading(false);
-    }
-  };
-
   if (!currentUser) {
     return (
       <div style={{ maxWidth: "500px", margin: "40px auto", padding: "20px" }}>
@@ -265,6 +264,12 @@ export function AccountSettings() {
           <p style={{ marginTop: "8px", fontSize: "12px", color: "#555" }}>
             Your current account roles are shown above. Additional roles must be requested and approved by an administrator.
           </p>
+          <p style={{ marginTop: "12px", fontSize: "14px", color: "#333" }}>
+            Need to change your password?{' '}
+            <Link to="/reset-password" style={{ color: "#2563eb", textDecoration: "underline" }}>
+              Go to Reset Password
+            </Link>
+          </p>
         </div>
 
         <button
@@ -301,8 +306,10 @@ export function AccountSettings() {
             }}
           >
             <option value="">Select a role</option>
-            {availableRoles.map((role) => (
-              <option key={role} value={role}>{role}</option>
+            {availableRoles.map((roleOption) => (
+              <option key={roleOption.value} value={roleOption.value}>
+                {roleOption.label}
+              </option>
             ))}
           </select>
         </div>
@@ -347,58 +354,6 @@ export function AccountSettings() {
           </div>
         )}
       </form>
-
-      <form onSubmit={handleChangePassword}>
-        <div style={{ marginBottom: "15px" }}>
-          <label>Old Password</label>
-          <input
-            type="password"
-            value={oldPassword}
-            onChange={(e) => setOldPassword(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "10px",
-              marginTop: "5px",
-              borderRadius: "6px",
-              border: "1px solid #ccc",
-            }}
-          />
-        </div>
-
-        <div style={{ marginBottom: "20px" }}>
-          <label>New Password</label>
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "10px",
-              marginTop: "5px",
-              borderRadius: "6px",
-              border: "1px solid #ccc",
-            }}
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={passwordLoading}
-          style={{
-            width: "100%",
-            padding: "10px",
-            borderRadius: "6px",
-            border: "none",
-            background: passwordLoading ? "#999" : "#2563eb",
-            color: "white",
-            cursor: "pointer",
-          }}
-        >
-          {passwordLoading ? "Updating..." : "Change Password"}
-        </button>
-      </form>
-
-     
     </div>
   );
 }

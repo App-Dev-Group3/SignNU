@@ -16,6 +16,7 @@ const templateRoutes = require('./routes/templateRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const officeRoutes = require('./routes/officeRoutes');
 const departmentRoutes = require('./routes/departmentRoutes');
+const organizationRoutes = require('./routes/organizationRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const Role = require('./models/role');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -275,6 +276,7 @@ app.use('/api/templates', templateRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/offices', officeRoutes);
 app.use('/api/departments', departmentRoutes);
+app.use('/api/organizations', organizationRoutes);
 app.use('/api/messages', messageRoutes);
 
 // =====================

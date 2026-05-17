@@ -1205,10 +1205,16 @@ const getAvailableRoles = async (req, res) => {
             filter.officeId = officeId;
         }
 
-        const managedRoles = await Role.find(filter).sort({ officeId: 1, name: 1 });
+        const managedRoles = await Role.find(filter).populate('departmentId', 'name').sort({ officeId: 1, name: 1 });
         if (managedRoles.length > 0) {
             if (detail) {
-                return res.status(200).json(managedRoles.map((role) => ({ id: role._id, name: role.name, officeId: role.officeId || null })));
+                return res.status(200).json(managedRoles.map((role) => ({
+                    id: role._id,
+                    name: role.name,
+                    officeId: role.officeId || null,
+                    departmentId: role.departmentId ? role.departmentId.toString() : null,
+                    departmentName: role.departmentId?.name || null,
+                })));
             }
             return res.status(200).json(managedRoles.map((role) => role.name));
         }

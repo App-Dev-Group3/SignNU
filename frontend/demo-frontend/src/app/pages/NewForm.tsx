@@ -1089,11 +1089,13 @@ export function NewForm() {
                     </div>
                   )}
                 </div>
-                {currentUser.role === 'Admin' && (
-                  <Button type="button" onClick={() => openOfficeDialog()}>
-                    Add Office
-                  </Button>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {currentUser.role === 'Admin' && (
+                    <Button type="button" onClick={() => openOfficeDialog()}>
+                      Add Office
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1132,6 +1134,9 @@ export function NewForm() {
             ) : (
               <p className="text-sm text-gray-500">Loading offices...</p>
             )}
+            <Button type="button" variant="secondary" onClick={() => applySelectedTemplate(CUSTOM_TEMPLATE_VALUE)}>
+              Custom chain
+            </Button>
           </div>
 
           {selectedOfficeId && (
@@ -1503,7 +1508,7 @@ export function NewForm() {
                     </p>
                     <div className="space-y-4">
                       {approvalSteps.map((step, index) => (
-                        <div key={index} className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] items-start text-sm">
+                        <div key={step.id || index} className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] items-start text-sm">
                           <div className="space-y-2">
                             <div className="flex items-center gap-2">
                               <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs">
@@ -1711,7 +1716,7 @@ export function NewForm() {
                         <p className="font-medium text-slate-900">Approval chain for this submission</p>
                         <ul className="mt-2 space-y-2">
                           {approvalSteps.map((step, index) => (
-                            <li key={index} className="flex flex-col gap-1">
+                            <li key={step.id || index} className="flex flex-col gap-1">
                               <span className="font-semibold">Step {index + 1}: {step.role || 'Untitled role'}</span>
                               <span className="text-slate-600">{step.userName ? step.userName : 'No approver selected yet'}</span>
                             </li>

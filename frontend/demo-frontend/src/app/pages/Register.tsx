@@ -382,7 +382,7 @@ if (!formData.firstName || !formData.lastName || !formData.email || !formData.pa
                           <SelectTrigger className="pl-12 h-11">
                             <SelectValue placeholder="Select organization" />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="max-h-72">
                             {organizationOptions.length > 0 ? (
                               organizationOptions.map((org) => (
                                 <SelectItem key={org} value={org}>

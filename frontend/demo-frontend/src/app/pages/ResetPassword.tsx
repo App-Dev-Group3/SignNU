@@ -6,6 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { Mail, Lock, ShieldCheck } from 'lucide-react';
+import { useWorkflow } from '../context/WorkflowContext';
 
 const allowedEmailPattern = /^(?:[A-Za-z0-9._%+-]+@(?:nu-laguna\.edu\.ph|students\.nu-laguna\.edu\.ph|shs\.students\.nu-laguna\.edu\.ph))$/;
 
@@ -16,6 +17,8 @@ export function ResetPassword() {
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [oldPassword, setOldPassword] = useState('');
+  const [isChanging, setIsChanging] = useState(false);
   const [isSent, setIsSent] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -23,6 +26,7 @@ export function ResetPassword() {
   const [isResetting, setIsResetting] = useState(false);
   const [sendCooldown, setSendCooldown] = useState(0);
   const navigate = useNavigate();
+  const { currentUser } = useWorkflow();
 
   useEffect(() => {
     const urlToken = searchParams.get('token') || '';
@@ -110,6 +114,47 @@ export function ResetPassword() {
       toast.error('Something went wrong while verifying the reset code.');
     } finally {
       setIsVerifying(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+
+    if (!/^(?=.*[A-Z])(?=.*\d)[A-Za-z0-9]{8,}$/.test(newPassword)) {
+      toast.error('Password must be at least 8 characters, alphanumeric, and contain an uppercase letter');
+      return;
+    }
+
+    setIsChanging(true);
+    try {
+      const res = await fetch(`${apiBase}/api/users/change-password`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldPassword, newPassword }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast.error(data?.error || 'Failed to change password');
+        return;
+      }
+      toast.success('Password changed successfully!');
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      console.error(err);
+      toast.error('Something went wrong while changing your password.');
+    } finally {
+      setIsChanging(false);
     }
   };
 
@@ -219,6 +264,61 @@ export function ResetPassword() {
                 </Button>
               )}
             </div>
+
+            {currentUser && (
+              <div className="rounded-lg border border-dashed border-[#35408e]/40 bg-[#f8fafc] p-4 mb-4">
+                <h3 className="text-lg font-semibold text-slate-900">Change Password</h3>
+                <div className="space-y-4 mt-4">
+                  <div className="space-y-2">
+                    <Label>Current Password</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <Input
+                        type="password"
+                        value={oldPassword}
+                        onChange={(e) => setOldPassword(e.target.value)}
+                        className="pl-12 h-12 focus:border-[#35408e] focus:ring-2 focus:ring-[#35408e]/20"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>New Password</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <Input
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="pl-12 h-12 focus:border-[#35408e] focus:ring-2 focus:ring-[#35408e]/20"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Confirm New Password</Label>
+                    <div className="relative">
+                      <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <Input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="pl-12 h-12 focus:border-[#35408e] focus:ring-2 focus:ring-[#35408e]/20"
+                      />
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    className="w-full h-12"
+                    onClick={handleChangePassword}
+                    disabled={isChanging || !oldPassword || !newPassword || !confirmPassword}
+                  >
+                    {isChanging ? 'Updating password...' : 'Change password'}
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {isVerified ? (
               <>

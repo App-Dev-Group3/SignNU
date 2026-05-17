@@ -7,11 +7,15 @@ const getRoles = async (req, res) => {
     if (req.query.officeId) {
       filter.officeId = req.query.officeId;
     }
+    if (req.query.organizationId) {
+      filter.organizationId = req.query.organizationId;
+    }
     const roles = await Role.find(filter).sort({ name: 1 });
     res.status(200).json(roles.map((role) => ({
       id: role._id,
       name: role.name,
       officeId: role.officeId ? role.officeId.toString() : null,
+      organizationId: role.organizationId ? role.organizationId.toString() : null,
       departmentId: role.departmentId ? role.departmentId.toString() : null,
     })));
   } catch (error) {
@@ -21,12 +25,17 @@ const getRoles = async (req, res) => {
 
 const createRole = async (req, res) => {
   try {
-    const { name, officeId, departmentId } = req.body;
+    const { name, officeId, organizationId, departmentId } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Role name is required' });
     }
 
     const normalizedOfficeId = officeId || null;
+    const normalizedOrganizationId = organizationId || null;
+    if (normalizedOfficeId && normalizedOrganizationId) {
+      return res.status(400).json({ error: 'Role may only belong to one context: office or organization' });
+    }
+
     let office = null;
     if (normalizedOfficeId) {
       office = await Office.findById(normalizedOfficeId);
@@ -35,12 +44,23 @@ const createRole = async (req, res) => {
       }
     }
 
-    const normalizedDepartmentId = departmentId || null;
-    const needsDepartment = office?.name.trim().toLowerCase() === 'faculty';
-    const departmentIdToSave = needsDepartment ? normalizedDepartmentId : null;
+    let organization = null;
+    if (normalizedOrganizationId) {
+      organization = await require('../models/organization.js').findById(normalizedOrganizationId);
+      if (!organization) {
+        return res.status(400).json({ error: 'Organization not found' });
+      }
+    }
 
-    if (needsDepartment && !departmentIdToSave) {
+    const normalizedDepartmentId = departmentId || null;
+    const needsDepartmentForOffice = office?.name.trim().toLowerCase() === 'faculty';
+    const departmentIdToSave = needsDepartmentForOffice ? normalizedDepartmentId : normalizedDepartmentId;
+
+    if (normalizedOfficeId && needsDepartmentForOffice && !departmentIdToSave) {
       return res.status(400).json({ error: 'Department is required for faculty office roles' });
+    }
+    if (normalizedOrganizationId && !departmentIdToSave) {
+      return res.status(400).json({ error: 'Department is required for organization roles' });
     }
     if (departmentIdToSave) {
       const department = await require('../models/department.js').findById(departmentIdToSave);
@@ -49,13 +69,29 @@ const createRole = async (req, res) => {
       }
     }
 
-    const existingRole = await Role.findOne({ name: name.trim(), officeId: normalizedOfficeId, departmentId: departmentIdToSave });
+    const existingRole = await Role.findOne({
+      name: name.trim(),
+      officeId: normalizedOfficeId,
+      organizationId: normalizedOrganizationId,
+      departmentId: departmentIdToSave,
+    });
     if (existingRole) {
-      return res.status(409).json({ error: 'Role already exists for this office and department' });
+      return res.status(409).json({ error: 'Role already exists for this context and department' });
     }
 
-    const role = await Role.create({ name: name.trim(), officeId: normalizedOfficeId, departmentId: departmentIdToSave });
-    res.status(201).json({ id: role._id, name: role.name, officeId: role.officeId || null, departmentId: role.departmentId || null });
+    const role = await Role.create({
+      name: name.trim(),
+      officeId: normalizedOfficeId,
+      organizationId: normalizedOrganizationId,
+      departmentId: departmentIdToSave,
+    });
+    res.status(201).json({
+      id: role._id,
+      name: role.name,
+      officeId: role.officeId || null,
+      organizationId: role.organizationId || null,
+      departmentId: role.departmentId || null,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -64,12 +100,17 @@ const createRole = async (req, res) => {
 const updateRole = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, officeId, departmentId } = req.body;
+    const { name, officeId, organizationId, departmentId } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Role name is required' });
     }
 
     const normalizedOfficeId = officeId || null;
+    const normalizedOrganizationId = organizationId || null;
+    if (normalizedOfficeId && normalizedOrganizationId) {
+      return res.status(400).json({ error: 'Role may only belong to one context: office or organization' });
+    }
+
     let office = null;
     if (normalizedOfficeId) {
       office = await Office.findById(normalizedOfficeId);
@@ -78,12 +119,22 @@ const updateRole = async (req, res) => {
       }
     }
 
-    const normalizedDepartmentId = departmentId || null;
-    const needsDepartment = office?.name.trim().toLowerCase() === 'faculty';
-    const departmentIdToSave = needsDepartment ? normalizedDepartmentId : null;
+    if (normalizedOrganizationId) {
+      const organization = await require('../models/organization.js').findById(normalizedOrganizationId);
+      if (!organization) {
+        return res.status(400).json({ error: 'Organization not found' });
+      }
+    }
 
-    if (needsDepartment && !departmentIdToSave) {
+    const normalizedDepartmentId = departmentId || null;
+    const needsDepartmentForOffice = office?.name.trim().toLowerCase() === 'faculty';
+    const departmentIdToSave = needsDepartmentForOffice ? normalizedDepartmentId : normalizedDepartmentId;
+
+    if (normalizedOfficeId && needsDepartmentForOffice && !departmentIdToSave) {
       return res.status(400).json({ error: 'Department is required for faculty office roles' });
+    }
+    if (normalizedOrganizationId && !departmentIdToSave) {
+      return res.status(400).json({ error: 'Department is required for organization roles' });
     }
     if (departmentIdToSave) {
       const department = await require('../models/department.js').findById(departmentIdToSave);
@@ -92,21 +143,38 @@ const updateRole = async (req, res) => {
       }
     }
 
-    const duplicate = await Role.findOne({ name: name.trim(), officeId: normalizedOfficeId, departmentId: departmentIdToSave, _id: { $ne: id } });
+    const duplicate = await Role.findOne({
+      name: name.trim(),
+      officeId: normalizedOfficeId,
+      organizationId: normalizedOrganizationId,
+      departmentId: departmentIdToSave,
+      _id: { $ne: id },
+    });
     if (duplicate) {
-      return res.status(409).json({ error: 'Another role with this name already exists for this office and department' });
+      return res.status(409).json({ error: 'Another role with this name already exists for this context and department' });
     }
 
     const role = await Role.findByIdAndUpdate(
       id,
-      { name: name.trim(), officeId: normalizedOfficeId, departmentId: departmentIdToSave },
+      {
+        name: name.trim(),
+        officeId: normalizedOfficeId,
+        organizationId: normalizedOrganizationId,
+        departmentId: departmentIdToSave,
+      },
       { new: true, runValidators: true }
     );
     if (!role) {
       return res.status(404).json({ error: 'Role not found' });
     }
 
-    res.status(200).json({ id: role._id, name: role.name, officeId: role.officeId || null, departmentId: role.departmentId || null });
+    res.status(200).json({
+      id: role._id,
+      name: role.name,
+      officeId: role.officeId || null,
+      organizationId: role.organizationId || null,
+      departmentId: role.departmentId || null,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

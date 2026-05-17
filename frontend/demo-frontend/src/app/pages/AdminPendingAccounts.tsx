@@ -11,6 +11,7 @@ import { RefreshCcw } from 'lucide-react';
 export function AdminPendingAccounts() {
   const { currentUser } = useWorkflow();
   const [requests, setRequests] = useState<Array<any>>([]);
+  const [pendingRoleRequests, setPendingRoleRequests] = useState<Array<any>>([]);
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,19 +30,29 @@ export function AdminPendingAccounts() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/account-requests?status=pending`, {
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
-      });
+      const [accountsRes, roleRequestsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/admin/account-requests?status=pending`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        }),
+        fetch(`${API_BASE_URL}/api/admin/role-requests?status=pending`, {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        }),
+      ]);
 
-      if (!res.ok) {
-        throw new Error(`Unable to load pending account requests (${res.status})`);
+      if (!accountsRes.ok || !roleRequestsRes.ok) {
+        const errorParts = [];
+        if (!accountsRes.ok) errorParts.push(`accounts(${accountsRes.status})`);
+        if (!roleRequestsRes.ok) errorParts.push(`roleRequests(${roleRequestsRes.status})`);
+        throw new Error(`Unable to load pending requests: ${errorParts.join(', ')}`);
       }
 
-      const data = await res.json();
-      setRequests(Array.isArray(data) ? data : []);
+      const [accountsData, roleRequestsData] = await Promise.all([accountsRes.json(), roleRequestsRes.json()]);
+      setRequests(Array.isArray(accountsData) ? accountsData : []);
+      setPendingRoleRequests(Array.isArray(roleRequestsData) ? roleRequestsData : []);
     } catch (err: any) {
-      setError(err?.message || 'Unable to load pending account requests.');
+      setError(err?.message || 'Unable to load pending requests.');
     } finally {
       setIsLoading(false);
     }
@@ -125,6 +136,38 @@ export function AdminPendingAccounts() {
     }
   };
 
+  const approvePendingRoleRequest = async (userId: string, requestId: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/role-requests/${userId}/${requestId}/approve`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      });
+      if (!res.ok) {
+        throw new Error('Failed to approve role request');
+      }
+      setPendingRoleRequests((prev) => prev.filter((request) => request.requestId !== requestId));
+    } catch (err: any) {
+      setError(err?.message || 'Could not approve role request');
+    }
+  };
+
+  const rejectPendingRoleRequest = async (userId: string, requestId: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/role-requests/${userId}/${requestId}/reject`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      });
+      if (!res.ok) {
+        throw new Error('Failed to reject role request');
+      }
+      setPendingRoleRequests((prev) => prev.filter((request) => request.requestId !== requestId));
+    } catch (err: any) {
+      setError(err?.message || 'Could not reject role request');
+    }
+  };
+
   const filteredRequests = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return requests;
@@ -168,67 +211,105 @@ export function AdminPendingAccounts() {
           </div>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Pending Account Requests</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4">
-              <Label htmlFor="pending-search">Search requests</Label>
-              <Input
-                id="pending-search"
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name, email, department, role, or organization"
-              />
-            </div>
+        <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
+          <div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Pending Account Requests</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4">
+                  <Label htmlFor="pending-search">Search requests</Label>
+                  <Input
+                    id="pending-search"
+                    type="search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search by name, email, department, role, or organization"
+                  />
+                </div>
 
-            {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+                {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
-            {isLoading ? (
-              <p>Loading account requests...</p>
-            ) : filteredRequests.length === 0 ? (
-              <p className="text-sm text-gray-600">No pending account requests.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left border-collapse">
-                  <thead>
-                    <tr>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Name</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Email</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Department</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Organization</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Role</th>
-                      <th className="p-3 border-b border-gray-200 text-sm font-semibold">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRequests.map((request) => (
-                      <tr key={request._id} className="hover:bg-gray-50 bg-yellow-50/60">
-                        <td className="p-3 border-b border-gray-200">{request.username || `${request.firstName} ${request.lastName}`}</td>
-                        <td className="p-3 border-b border-gray-200">{request.email}</td>
-                        <td className="p-3 border-b border-gray-200">{request.department || '-'}</td>
-                        <td className="p-3 border-b border-gray-200">{request.organization || '-'}</td>
-                        <td className="p-3 border-b border-gray-200">{request.role || '-'}</td>
-                        <td className="p-3 border-b border-gray-200">
+                {isLoading ? (
+                  <p>Loading account requests...</p>
+                ) : filteredRequests.length === 0 ? (
+                  <p className="text-sm text-gray-600">No pending account requests.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-left border-collapse">
+                      <thead>
+                        <tr>
+                          <th className="p-3 border-b border-gray-200 text-sm font-semibold">Name</th>
+                          <th className="p-3 border-b border-gray-200 text-sm font-semibold">Email</th>
+                          <th className="p-3 border-b border-gray-200 text-sm font-semibold">Department</th>
+                          <th className="p-3 border-b border-gray-200 text-sm font-semibold">Organization</th>
+                          <th className="p-3 border-b border-gray-200 text-sm font-semibold">Role</th>
+                          <th className="p-3 border-b border-gray-200 text-sm font-semibold">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRequests.map((request) => (
+                          <tr key={request._id} className="hover:bg-gray-50 bg-yellow-50/60">
+                            <td className="p-3 border-b border-gray-200">{request.username || `${request.firstName} ${request.lastName}`}</td>
+                            <td className="p-3 border-b border-gray-200">{request.email}</td>
+                            <td className="p-3 border-b border-gray-200">{request.department || '-'}</td>
+                            <td className="p-3 border-b border-gray-200">{request.organization || '-'}</td>
+                            <td className="p-3 border-b border-gray-200">{request.role || '-'}</td>
+                            <td className="p-3 border-b border-gray-200">
+                              <div className="flex flex-wrap gap-2">
+                                <Button size="sm" onClick={() => approveRequest(request._id)}>
+                                  Approve
+                                </Button>
+                                <Button size="sm" variant="destructive" onClick={() => rejectRequest(request._id)}>
+                                  Reject
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <aside className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Pending Role Requests</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {pendingRoleRequests.length === 0 ? (
+                  <p className="text-sm text-gray-600">No pending role requests.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {pendingRoleRequests.map((request) => (
+                      <div key={`${request.userId}-${request.requestId}`} className="rounded-lg border border-gray-200 bg-white p-4">
+                        <div className="flex flex-col gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">{request.role}</p>
+                            <p className="text-sm text-gray-600">Requested by {request.username || request.email}</p>
+                          </div>
                           <div className="flex flex-wrap gap-2">
-                            <Button size="sm" onClick={() => approveRequest(request._id)}>
+                            <Button size="sm" onClick={() => approvePendingRoleRequest(request.userId, request.requestId)}>
                               Approve
                             </Button>
-                            <Button size="sm" variant="destructive" onClick={() => rejectRequest(request._id)}>
+                            <Button size="sm" variant="destructive" onClick={() => rejectPendingRoleRequest(request.userId, request.requestId)}>
                               Reject
                             </Button>
                           </div>
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </aside>
+        </div>
       </div>
     </div>
   );

@@ -27,7 +27,7 @@ const roles: UserRole[] = [
 export function Admin() {
   const { currentUser } = useWorkflow();
   const [users, setUsers] = useState<Array<any>>([]);
-  const [managedRoles, setManagedRoles] = useState<Array<{ id: string; name: string; officeId?: string; departmentId?: string }>>([]);
+  const [managedRoles, setManagedRoles] = useState<Array<{ id: string; name: string; officeId?: string; organizationId?: string; departmentId?: string }>>([]);
   const [managedOffices, setManagedOffices] = useState<Array<{ id: string; name: string }>>([]);
   const [managedDepartments, setManagedDepartments] = useState<Array<{ id: string; name: string }>>([]);
   const [roleName, setRoleName] = useState('');
@@ -39,15 +39,25 @@ export function Admin() {
   const [officeRoleDepartmentId, setOfficeRoleDepartmentId] = useState('');
   const [officeRoleDepartmentFilter, setOfficeRoleDepartmentFilter] = useState<Record<string, string>>({});
   const [editingOfficeRoleId, setEditingOfficeRoleId] = useState('');
+  const [organizationRoleName, setOrganizationRoleName] = useState('');
+  const [organizationRoleOrganizationId, setOrganizationRoleOrganizationId] = useState('');
+  const [organizationRoleDepartmentId, setOrganizationRoleDepartmentId] = useState('');
+  const [organizationRoleDepartmentFilter, setOrganizationRoleDepartmentFilter] = useState<Record<string, string>>({});
+  const [editingOrganizationRoleId, setEditingOrganizationRoleId] = useState('');
   const [isSavingRole, setIsSavingRole] = useState(false);
   const [isSavingDepartment, setIsSavingDepartment] = useState(false);
   const [roleError, setRoleError] = useState<string | null>(null);
   const [officeRoleError, setOfficeRoleError] = useState<string | null>(null);
+  const [organizationRoleError, setOrganizationRoleError] = useState<string | null>(null);
   const [departmentError, setDepartmentError] = useState<string | null>(null);
+  const [managedOrganizations, setManagedOrganizations] = useState<Array<{ id: string; name: string }>>([]);
+  const [organizationName, setOrganizationName] = useState('');
+  const [editingOrganizationId, setEditingOrganizationId] = useState('');
+  const [organizationError, setOrganizationError] = useState<string | null>(null);
+  const [isSavingOrganization, setIsSavingOrganization] = useState(false);
   const [accountSearch, setAccountSearch] = useState('');
   const [accountTypeFilter, setAccountTypeFilter] = useState('');
   const [accountDepartmentFilter, setAccountDepartmentFilter] = useState('');
-  const [pendingRoleRequests, setPendingRoleRequests] = useState<Array<any>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roleAddSelection, setRoleAddSelection] = useState<Record<string, string>>({});
@@ -69,7 +79,7 @@ export function Admin() {
     setIsLoading(true);
     setError(null);
     try {
-      const [usersRes, rolesRes, officesRes, departmentsRes, roleRequestsRes] = await Promise.all([
+      const [usersRes, rolesRes, officesRes, departmentsRes, organizationsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/users`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
@@ -86,18 +96,19 @@ export function Admin() {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         }),
-        fetch(`${API_BASE_URL}/api/admin/role-requests`, {
+        fetch(`${API_BASE_URL}/api/organizations`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         }),
       ]);
 
-      if (!usersRes.ok || !rolesRes.ok || !officesRes.ok || !departmentsRes.ok || !roleRequestsRes.ok) {
+      if (!usersRes.ok || !rolesRes.ok || !officesRes.ok || !departmentsRes.ok || !organizationsRes.ok) {
         const errorParts = [];
         if (!usersRes.ok) errorParts.push(`users(${usersRes.status})`);
         if (!rolesRes.ok) errorParts.push(`roles(${rolesRes.status})`);
+        if (!officesRes.ok) errorParts.push(`offices(${officesRes.status})`);
         if (!departmentsRes.ok) errorParts.push(`departments(${departmentsRes.status})`);
-        if (!roleRequestsRes.ok) errorParts.push(`roleRequests(${roleRequestsRes.status})`);
+        if (!organizationsRes.ok) errorParts.push(`organizations(${organizationsRes.status})`);
         throw new Error(`Failed to load: ${errorParts.join(', ')}`);
       }
 
@@ -105,12 +116,12 @@ export function Admin() {
       const rolesData = await rolesRes.json();
       const officesData = await officesRes.json();
       const departmentsData = await departmentsRes.json();
-      const roleRequestsData = await roleRequestsRes.json();
+      const organizationsData = await organizationsRes.json();
       setUsers(usersData);
-      setManagedRoles(Array.isArray(rolesData) ? rolesData.map((role) => ({ id: role.id || role._id, name: role.name || role, officeId: role.officeId || '', departmentId: role.departmentId || '' })) : []);
+      setManagedRoles(Array.isArray(rolesData) ? rolesData.map((role) => ({ id: role.id || role._id, name: role.name || role, officeId: role.officeId || '', organizationId: role.organizationId || '', departmentId: role.departmentId || '' })) : []);
       setManagedOffices(Array.isArray(officesData) ? officesData.map((office) => ({ id: office.id || office._id, name: office.name || office })) : []);
       setManagedDepartments(Array.isArray(departmentsData) ? departmentsData.map((dept) => ({ id: dept.id || dept._id, name: dept.name || dept })) : []);
-      setPendingRoleRequests(Array.isArray(roleRequestsData) ? roleRequestsData : []);
+      setManagedOrganizations(Array.isArray(organizationsData) ? organizationsData.map((org) => ({ id: org.id, name: org.name })) : []);
       // No template-specific department selection required for default approval chains.
     } catch (err) {
       setError('Unable to load admin data.');
@@ -326,6 +337,68 @@ export function Admin() {
     setOfficeRoleDepartmentId(isFacultyOffice(role.officeId || '') ? (role.departmentId || '') : '');
   };
 
+  const saveOrganizationRole = async () => {
+    if (!organizationRoleName.trim()) {
+      setOrganizationRoleError('Organization role name is required.');
+      return;
+    }
+    if (!organizationRoleOrganizationId) {
+      setOrganizationRoleError('Please choose an organization.');
+      return;
+    }
+    if (!organizationRoleDepartmentId) {
+      setOrganizationRoleError('Please choose a department.');
+      return;
+    }
+
+    setIsSavingRole(true);
+    setOrganizationRoleError(null);
+
+    try {
+      const url = editingOrganizationRoleId ? `${API_BASE_URL}/api/roles/${editingOrganizationRoleId}` : `${API_BASE_URL}/api/roles`;
+      const method = editingOrganizationRoleId ? 'PUT' : 'POST';
+      const response = await fetch(url, {
+        method,
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        body: JSON.stringify({
+          name: organizationRoleName.trim(),
+          organizationId: organizationRoleOrganizationId,
+          departmentId: organizationRoleDepartmentId,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to save organization role');
+      }
+
+      setManagedRoles((prev) => {
+        if (editingOrganizationRoleId) {
+          return prev.map((role) => (role.id === editingOrganizationRoleId ? { id: data.id, name: data.name, officeId: '', organizationId: data.organizationId || '', departmentId: data.departmentId || '' } : role));
+        }
+        return [{ id: data.id, name: data.name, officeId: '', organizationId: data.organizationId || '', departmentId: data.departmentId || '' }, ...prev];
+      });
+      setEditingOrganizationRoleId('');
+      setOrganizationRoleName('');
+      setOrganizationRoleOrganizationId('');
+      setOrganizationRoleDepartmentId('');
+    } catch (err: any) {
+      setOrganizationRoleError(err?.message || 'Unable to save organization role');
+    } finally {
+      setIsSavingRole(false);
+    }
+  };
+
+  const editOrganizationRole = (roleId: string) => {
+    const role = managedRoles.find((item) => item.id === roleId);
+    if (!role) return;
+    setEditingOrganizationRoleId(role.id);
+    setOrganizationRoleName(role.name);
+    setOrganizationRoleOrganizationId(role.organizationId || '');
+    setOrganizationRoleDepartmentId(role.departmentId || '');
+  };
+
   const saveDepartment = async () => {
     if (!departmentName.trim()) {
       setDepartmentError('Department name is required.');
@@ -368,6 +441,71 @@ export function Admin() {
     if (!department) return;
     setEditingDepartmentId(department.id);
     setDepartmentName(department.name);
+  };
+
+  const saveOrganization = async () => {
+    if (!organizationName.trim()) {
+      setOrganizationError('Organization name is required.');
+      return;
+    }
+    setIsSavingOrganization(true);
+    setOrganizationError(null);
+
+    try {
+      const normalizedName = organizationName.trim();
+      const url = editingOrganizationId ? `${API_BASE_URL}/api/organizations/${editingOrganizationId}` : `${API_BASE_URL}/api/organizations`;
+      const method = editingOrganizationId ? 'PUT' : 'POST';
+      const response = await fetch(url, {
+        method,
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        body: JSON.stringify({ name: normalizedName }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to save organization');
+      }
+
+      setManagedOrganizations((prev) => {
+        if (editingOrganizationId) {
+          return prev.map((org) => (org.id === editingOrganizationId ? { id: data.id, name: data.name } : org));
+        }
+        return [{ id: data.id, name: data.name }, ...prev];
+      });
+      setEditingOrganizationId('');
+      setOrganizationName('');
+    } catch (err: any) {
+      setOrganizationError(err?.message || 'Unable to save organization');
+    } finally {
+      setIsSavingOrganization(false);
+    }
+  };
+
+  const editOrganization = (organizationId: string) => {
+    const organization = managedOrganizations.find((item) => item.id === organizationId);
+    if (!organization) return;
+    setEditingOrganizationId(organization.id);
+    setOrganizationName(organization.name);
+  };
+
+  const deleteOrganization = async (organizationId: string) => {
+    const confirmed = window.confirm('Delete this organization? This will remove it from the managed list.');
+    if (!confirmed) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/organizations/${organizationId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || 'Failed to delete organization');
+      }
+      setManagedOrganizations((prev) => prev.filter((org) => org.id !== organizationId));
+    } catch (err: any) {
+      setOrganizationError(err?.message || 'Could not delete organization');
+    }
   };
 
   const addUserRole = async (userId: string, roleToAdd: string) => {
@@ -491,14 +629,20 @@ export function Admin() {
 
   const roleOptions = managedRoles.length > 0 ? Array.from(new Set(managedRoles.map((r) => r.name))) : roles;
   const employeeRoleOptions = roleOptions.filter((role) => role !== 'Student');
-  const globalRoles = managedRoles.filter((role) => !role.officeId);
   const officeRolesByOffice = managedRoles.reduce<Record<string, Array<{ id: string; name: string; departmentId?: string }>>>((acc, role) => {
     const officeKey = role.officeId || 'global';
     if (!acc[officeKey]) acc[officeKey] = [];
     if (role.officeId) acc[officeKey].push({ id: role.id, name: role.name, departmentId: role.departmentId ? String(role.departmentId) : undefined });
     return acc;
   }, {});
+  const organizationRolesByOrganization = managedRoles.reduce<Record<string, Array<{ id: string; name: string; departmentId?: string }>>>((acc, role) => {
+    const orgKey = role.organizationId || 'global';
+    if (!acc[orgKey]) acc[orgKey] = [];
+    if (role.organizationId) acc[orgKey].push({ id: role.id, name: role.name, departmentId: role.departmentId ? String(role.departmentId) : undefined });
+    return acc;
+  }, {});
   const departmentOptions = managedDepartments.length > 0 ? managedDepartments.map((d) => d.name) : ['SCS', 'SABM', 'SAS', 'SEA'];
+  const globalRoles = managedRoles.filter((role) => !role.officeId && !role.organizationId);
 
   const approveExistingUser = async (userId: string) => {
     try {
@@ -528,36 +672,6 @@ export function Admin() {
       setUsers((prev) => prev.filter((user) => user._id !== userId));
     } catch (err) {
       setError('Could not delete user account');
-    }
-  };
-
-  const approvePendingRoleRequest = async (userId: string, requestId: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/role-requests/${userId}/${requestId}/approve`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
-      });
-      if (!response.ok) throw new Error('Failed to approve role request');
-      const data = await response.json();
-      setPendingRoleRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-      setUsers((prev) => prev.map((user) => user._id === data.user._id ? data.user : user));
-    } catch (err) {
-      setError('Could not approve role request');
-    }
-  };
-
-  const rejectPendingRoleRequest = async (userId: string, requestId: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/role-requests/${userId}/${requestId}/reject`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
-      });
-      if (!response.ok) throw new Error('Failed to reject role request');
-      setPendingRoleRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-    } catch (err) {
-      setError('Could not reject role request');
     }
   };
 
@@ -841,36 +955,202 @@ export function Admin() {
 
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Pending Role Requests</CardTitle>
+            <CardTitle>Managed Organizations</CardTitle>
           </CardHeader>
           <CardContent>
-            {pendingRoleRequests.length === 0 ? (
-              <p className="text-sm text-gray-600">No pending additional role requests.</p>
-            ) : (
-              <div className="space-y-3">
-                {pendingRoleRequests.map((request) => (
-                  <div key={`${request.userId}-${request.requestId}`} className="rounded-lg border border-gray-200 bg-white p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{request.role}</p>
-                        <p className="text-sm text-gray-600">Requested by {request.username || request.email}</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" onClick={() => approvePendingRoleRequest(request.userId, request.requestId)}>
-                          Approve
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => rejectPendingRoleRequest(request.userId, request.requestId)}>
-                          Reject
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="mt-3 text-sm text-gray-500">
-                      Current roles: {(request.roles || []).join(', ') || '-'}
-                    </div>
-                  </div>
-                ))}
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3 items-end">
+                <div className="md:col-span-2 space-y-2">
+                  <Label htmlFor="organizationName">Organization Name</Label>
+                  <Input
+                    id="organizationName"
+                    value={organizationName}
+                    onChange={(e) => setOrganizationName(e.target.value)}
+                    placeholder="e.g. Student Council"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={saveOrganization} disabled={isSavingOrganization}>
+                    {isSavingOrganization ? (editingOrganizationId ? 'Updating...' : 'Saving...') : (editingOrganizationId ? 'Update Organization' : 'Add Organization')}
+                  </Button>
+                  {editingOrganizationId && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setEditingOrganizationId('');
+                        setOrganizationName('');
+                        setOrganizationError(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </div>
               </div>
-            )}
+
+              {organizationError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {organizationError}
+                </div>
+              )}
+
+              {managedOrganizations.length === 0 ? (
+                <p className="text-sm text-gray-600">No managed organizations available.</p>
+              ) : (
+                <div className="space-y-2">
+                  {managedOrganizations.map((organization) => (
+                    <div key={organization.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3">
+                      <span className="text-sm text-gray-900">{organization.name}</span>
+                      <div className="flex gap-2">
+                        <Button size="sm" type="button" onClick={() => editOrganization(organization.id)}>
+                          Edit
+                        </Button>
+                        <Button size="sm" variant="destructive" type="button" onClick={() => deleteOrganization(organization.id)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Organization Roles</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-4 items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="organizationRoleOrganizationId">Organization</Label>
+                  <select
+                    id="organizationRoleOrganizationId"
+                    value={organizationRoleOrganizationId}
+                    onChange={(e) => setOrganizationRoleOrganizationId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">Choose an organization</option>
+                    {managedOrganizations.map((organization) => (
+                      <option key={organization.id} value={organization.id}>{organization.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="organizationRoleDepartmentId">Department</Label>
+                  <select
+                    id="organizationRoleDepartmentId"
+                    value={organizationRoleDepartmentId}
+                    onChange={(e) => setOrganizationRoleDepartmentId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">Choose a department</option>
+                    {managedDepartments.map((department) => (
+                      <option key={department.id} value={department.id}>{department.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2 space-y-2">
+                  <Label htmlFor="organizationRoleName">Role Name</Label>
+                  <Input
+                    id="organizationRoleName"
+                    value={organizationRoleName}
+                    onChange={(e) => setOrganizationRoleName(e.target.value)}
+                    placeholder="e.g. President"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button onClick={saveOrganizationRole} disabled={isSavingRole}>
+                  {isSavingRole ? (editingOrganizationRoleId ? 'Updating...' : 'Saving...') : (editingOrganizationRoleId ? 'Update Role' : 'Add Role')}
+                </Button>
+                {editingOrganizationRoleId && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setEditingOrganizationRoleId('');
+                      setOrganizationRoleName('');
+                      setOrganizationRoleOrganizationId('');
+                      setOrganizationRoleDepartmentId('');
+                      setOrganizationRoleError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
+
+              {organizationRoleError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {organizationRoleError}
+                </div>
+              )}
+
+              {managedOrganizations.length === 0 ? (
+                <p className="text-sm text-gray-600">Add an organization before creating organization roles.</p>
+              ) : (
+                <div className="space-y-4 max-h-[32rem] overflow-y-auto pr-1">
+                  {managedOrganizations.map((organization) => {
+                    const selectedDepartmentFilter = organizationRoleDepartmentFilter[organization.id] || '';
+                    const organizationRoles = organizationRolesByOrganization[organization.id] || [];
+                    const filteredRoles = selectedDepartmentFilter
+                      ? organizationRoles.filter((role) => role.departmentId === selectedDepartmentFilter)
+                      : organizationRoles;
+
+                    return (
+                      <div key={organization.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-3">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">{organization.name}</p>
+                            <p className="text-xs text-gray-500">Organization-specific roles</p>
+                          </div>
+                          <div className="w-full md:w-72">
+                            <Label htmlFor={`orgRoleDepartmentFilter-${organization.id}`}>Filter by department</Label>
+                            <select
+                              id={`orgRoleDepartmentFilter-${organization.id}`}
+                              value={selectedDepartmentFilter}
+                              onChange={(e) => setOrganizationRoleDepartmentFilter((prev) => ({ ...prev, [organization.id]: e.target.value }))}
+                              className="mt-1 w-full border rounded-lg px-3 py-2"
+                            >
+                              <option value="">All Departments</option>
+                              {managedDepartments.map((department) => (
+                                <option key={department.id} value={department.id}>{department.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {filteredRoles.length ? (
+                          <div className="space-y-2">
+                            {filteredRoles.map((role) => (
+                              <div key={role.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-slate-50 p-3">
+                                <div>
+                                  <p className="text-sm text-gray-900">{role.name}</p>
+                                  <p className="text-xs text-gray-500">Department: {managedDepartments.find((dept) => dept.id === role.departmentId)?.name || 'Unknown'}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button size="sm" type="button" onClick={() => editOrganizationRole(role.id)}>
+                                    Edit
+                                  </Button>
+                                  <Button size="sm" variant="destructive" type="button" onClick={() => deleteRole(role.id)}>
+                                    Delete
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-600">No roles defined for this organization and department filter.</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
