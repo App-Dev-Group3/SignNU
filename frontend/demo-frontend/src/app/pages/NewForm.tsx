@@ -163,11 +163,13 @@ export function NewForm() {
   useEffect(() => {
     const fetchRoles = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/roles`, {
+        const response = await fetch(`${API_BASE_URL}/api/users/roles`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         });
         if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`Unable to load roles: ${response.status} ${errorText}`);
           return;
         }
         const data = await response.json();
@@ -302,9 +304,11 @@ export function NewForm() {
       const method = editingOfficeId ? 'PUT' : 'POST';
       const payload = new FormData();
       payload.append('name', officeName.trim());
-      payload.append('imageUrl', officeImageUrl || '');
+      const imageIsDataUrl = officeImageUrl?.startsWith('data:');
       if (officeImageFile) {
         payload.append('imageFile', officeImageFile);
+      } else if (officeImageUrl && !imageIsDataUrl) {
+        payload.append('imageUrl', officeImageUrl);
       }
 
       const response = await fetch(url, {

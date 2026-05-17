@@ -242,10 +242,10 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   };
 
   const handleFormEvent = (form: any) => {
-    if (!currentUser) return;
+    if (!currentUser || !form) return;
     const isRequester = String(form.submittedById) === String(currentUser.id);
     const isApprover = Array.isArray(form.approvalSteps)
-      ? form.approvalSteps.some((step) => String(step.userId) === String(currentUser.id))
+      ? form.approvalSteps.some((step: { userId: any; }) => step && String(step.userId) === String(currentUser.id))
       : false;
     if (!isRequester && !isApprover) return;
     updateOrAddForm(form);
@@ -478,6 +478,12 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const fetchForms = async () => {
+      if (!authLoaded) return;
+      if (!isAuthenticated) {
+        setForms([]);
+        return;
+      }
+
       try {
         const res = await authFetch(`${API_BASE_URL}/api/forms`);
         if (!res.ok) throw new Error('Failed to load forms');
@@ -490,7 +496,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     };
 
     fetchForms();
-  }, []);
+  }, [API_BASE_URL, authLoaded, isAuthenticated]);
 
   /* ===================== APPROVAL ===================== */
 

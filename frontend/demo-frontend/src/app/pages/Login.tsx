@@ -32,6 +32,7 @@ export function Login() {
       toast.success('Login successful!');
       navigate('/');
     } else {
+      setPassword('');
       if (result.pending) {
         toast.error(result.message || 'Email is pending admin approval');
       } else {
